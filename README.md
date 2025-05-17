@@ -1,4 +1,4 @@
-# Remnawave Backup & Resore (by distillium)
+# Remnawave Backup & Restore (by distillium)
 Скрипт автоматизирует резервное копирование и восстановление базы данных.
 
 ![screenshot](screenshot.png)
