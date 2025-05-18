@@ -38,7 +38,7 @@ install_dependencies() {
 
     if command -v apt-get &> /dev/null; then
         apt-get update -qq > /dev/null 2>&1 || { echo "Ошибка при обновлении списка пакетов."; exit 1; }
-        apt-get install -y toilet curl docker.io gzip > /dev/null 2>&1 || { echo "Ошибка при установке необходимых пакетов."; exit 1; }
+        apt-get install -y toilet curl gzip > /dev/null 2>&1 || { echo "Ошибка при установке необходимых пакетов."; exit 1; }
         echo "Необходимые пакеты установлены или уже присутствуют."
     else
         echo "Не удалось найти apt-get. Пожалуйста, установите toilet, curl, docker.io и gzip вручную."
