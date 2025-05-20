@@ -15,7 +15,7 @@
 
 ## Установка:
 ```
-sudo mkdir -p /opt/rw-backup-restore && sudo curl -sSL https://raw.githubusercontent.com/distillium/remnawave-backup-restore/refs/heads/main/backup-restore.sh -o /opt/rw-backup-restore/backup_and_notify.sh && sudo chmod +x /opt/rw-backup-restore/backup_and_notify.sh && sudo /opt/rw-backup-restore/backup_and_notify.sh
+sudo mkdir -p /opt/rw-backup-restore && sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh)"
 ```
 ## Команды:
 - `rw-backup` — быстрый доступ (при активации)
