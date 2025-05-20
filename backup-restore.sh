@@ -1,13 +1,12 @@
 #!/bin/bash
 
-echo "Running with bash version: $BASH_VERSION"
-
 set -e
 
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
-SCRIPT_NAME="backup_and_notify.sh"
+
+SCRIPT_NAME="backup-restore.sh" 
 SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
 RETAIN_BACKUPS_DAYS=7
 SYMLINK_PATH="/usr/local/bin/rw-backup"
@@ -259,7 +258,7 @@ setup_auto_send() {
 restore_backup() {
     echo -e ""
     echo -e "=== Восстановление из бэкапа ==="
-    echo -e "${RED}!!! ВНИМАНИЕ: Восстановление полностью перезапишет базу данных Remnawave !!!${RESET}"
+    echo -e "${RED}!!! ВНИМАНИЕ: Восстановление полностью перезапишет базу данных Remnawave и удалит ее том !!!${RESET}"
     echo -e "Поместите файл бэкапа (*.sql.gz) в папку: $BACKUP_DIR"
     echo -e "Убедитесь, что выбрали правильный файл бэкапа"
     echo -e ""
@@ -284,7 +283,7 @@ restore_backup() {
         fi
     done
 
-    echo -e $'Вы уверены, что хотите восстановить базу данных?\nВведите '"${GREEN}Y${RESET}"$' для подтверждения: '
+    echo -e $'Вы уверены, что хотите восстановить базу данных? Это удалит текущие данные.\nВведите '"${GREEN}Y${RESET}"$' для подтверждения: '
     read -r confirm_restore
 
     if [[ "${confirm_restore,,}" != "y" ]]; then
@@ -292,86 +291,96 @@ restore_backup() {
         return
     fi
 
-    echo "Подготовка системы к восстановлению..."
+    echo "Начало процесса полного сброса и восстановления базы данных..."
 
-    echo "Остановка сервисов Remnawave..."
+    echo "Остановка Remnawave и удаление тома базы данных..."
     if ! cd /opt/remnawave; then
         echo "Ошибка: Не удалось перейти в каталог /opt/remnawave. Убедитесь, что файл docker-compose.yml находится там."
-        local error_msg="❌ Ошибка при восстановлении: Не удалось найти каталог /opt/remnawave."
-        local escaped_error_msg=$(escape_markdown_v2 "$error_msg")
-        send_telegram_message "$escaped_error_msg" "MarkdownV2"; return
+        return
     fi
 
-    if ! docker compose stop; then
-           echo "Предупреждение: Не удалось остановить все сервисы docker compose. Продолжаем, но могут быть проблемы с подключением к БД."
-           local warning_msg="⚠️ Предупреждение: Не удалось остановить все сервисы docker compose. Продолжаем, но могут быть проблемы с подключением к БД."
-           local escaped_warning_msg=$(escape_markdown_v2 "$warning_msg")
-           send_telegram_message "$escaped_warning_msg" "MarkdownV2"
-    fi
+    docker compose down || { 
+        echo "Предупреждение: Не удалось корректно остановить сервисы Docker Compose."
+    }
 
-      if ! docker container inspect -f '{{.State.Running}}' remnawave-db 2>/dev/null | grep -q "true"; then
-        local error_prefix="❌ Ошибка при восстановлении: Контейнер 'remnawave-db' не запущен."
-        local escaped_error_prefix=$(escape_markdown_v2 "$error_prefix")
-        #send_telegram_message "$escaped_error_prefix" "MarkdownV2"
-
-        echo "Запуск remnawave-db..."
-        if ! docker compose up -d remnawave-db; then
-            echo "Критическая ошибка: Не удалось запустить контейнер 'remnawave-db'. Восстановление невозможно."
-            local critical_error_prefix="❌ Критическая ошибка при восстановлении: Не удалось запустить контейнер 'remnawave-db'."
-            local escaped_critical_error_prefix=$(escape_markdown_v2 "$critical_error_prefix")
-            send_telegram_message "$escaped_critical_error_prefix" "MarkdownV2"; return
+    if docker volume ls -q | grep -q "remnawave-db-data"; then
+        if ! docker volume rm remnawave-db-data; then
+            echo "Критическая ошибка: Не удалось удалить том 'remnawave-db-data'. Восстановление невозможно."
+            return
         fi
-        sleep 5
-          if ! docker container inspect -f '{{.State.Running}}' remnawave-db 2>/dev/null | grep -q "true"; then
-              echo "Критическая ошибка: Контейнер 'remnawave-db' все еще не запущен после попытки старта. Восстановление невозможно."
-              local critical_error_prefix_2="❌ Критическая ошибка при восстановлении: Контейнер 'remnawave-db' не запущен после попытки старта."
-              local escaped_critical_error_prefix_2=$(escape_markdown_v2 "$critical_error_prefix_2")
-              send_telegram_message "$escaped_critical_error_prefix_2" "MarkdownV2"; return
-          fi
+        echo "Том 'remnawave-db-data' успешно удален."
+    else
+        echo "Том 'remnawave-db-data' не найден, пропуск удаления."
     fi
 
-      if ! docker exec -i remnawave-db psql -U "$DB_USER" -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
-          echo "Ошибка: Не удалось подключиться к базе данных 'postgres' в контейнере 'remnawave-db' с пользователем '$DB_USER'."
-          echo "Проверьте имя пользователя БД в $CONFIG_FILE и доступность контейнера."
-          local db_connect_error_prefix="❌ Ошибка при восстановлении: Не удалось подключиться к БД в контейнере 'remnawave-db'."
-          local escaped_db_connect_error_prefix=$(escape_markdown_v2 "$db_connect_error_prefix")
-          send_telegram_message "$escaped_db_connect_error_prefix" "MarkdownV2"; return
-      fi
+    echo "Запуск контейнера 'remnawave-db'..."
+    if ! docker compose up -d remnawave-db; then
+        echo "Критическая ошибка: Не удалось запустить контейнер 'remnawave-db'. Восстановление невозможно."
+        return
+    fi
+    sleep 10
 
-    echo "🔄 Начало процесса восстановления..."
-    if gunzip -c "$SELECTED_BACKUP" | docker exec -i remnawave-db psql -U "$DB_USER" -d postgres > /dev/null 2>&1; then
-        echo "✅ Восстановление успешно завершено."
-        # Escape prefix, keep filename raw
+    if ! docker container inspect -f '{{.State.Running}}' remnawave-db 2>/dev/null | grep -q "true"; then
+        echo "Критическая ошибка: Контейнер 'remnawave-db' все еще не запущен после попытки старта. Восстановление невозможно."
+        return
+    fi
+
+    echo ""
+    echo -e "${GREEN}!!! ВНИМАНИЕ !!!${RESET}"
+    echo "Пожалуйста, убедитесь, что имя пользователя PostgreSQL (DB_USER), пароль и база данных"
+    echo "точно прописаны в файле .env (или в конфигурации Docker Compose), так как это было на предыдущем сервере."
+    echo "Это крайне важно для успешного восстановления."
+    echo -e $'Вы проверили и подтверждаете, что настройки БД верны?\nВведите '"${GREEN}Y${RESET}"$' для продолжения или '"${RED}N${RESET}"$' для отмены: '
+    read -r confirm_db_settings
+
+    if [[ "${confirm_db_settings,,}" != "y" ]]; then
+        echo "Восстановление отменено пользователем."
+        return
+    fi
+
+    if ! docker exec -i remnawave-db psql -U "$DB_USER" -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
+        echo "Ошибка: Не удалось подключиться к базе данных 'postgres' в контейнере 'remnawave-db' с пользователем '$DB_USER'."
+        echo "Проверьте имя пользователя БД в $CONFIG_FILE и доступность контейнера."
+        return
+    fi
+
+    echo "🔄 Начало импорта базы данных из бэкапа..."
+    if gunzip -c "$SELECTED_BACKUP" | docker exec -i remnawave-db psql -U "$DB_USER" -d postgres; then
+        echo "✅ Импорт базы данных успешно завершен."
         local restore_success_prefix="✅ Восстановление Remnawave DB успешно завершено из файла: "
         local restored_filename="${SELECTED_BACKUP##*/}"
         local escaped_restore_success_prefix=$(escape_markdown_v2 "$restore_success_prefix")
         local final_restore_success_message="${escaped_restore_success_prefix}${restored_filename}"
         send_telegram_message "$final_restore_success_message" "MarkdownV2"
-
     else
         STATUS=$?
-        echo "❌ Ошибка при выполнении восстановления. Код выхода: $STATUS"
-        local restore_error_prefix="❌ Ошибка при выполнении восстановления Remnawave DB из файла: "
+        echo "❌ Ошибка при импорте базы данных. Код выхода: $STATUS"
+        local restore_error_prefix="❌ Ошибка при импорте Remnawave DB из файла: "
         local restored_filename_error="${SELECTED_BACKUP##*/}"
         local error_suffix=". Код выхода: ${STATUS}"
         local escaped_restore_error_prefix=$(escape_markdown_v2 "$restore_error_prefix")
         local escaped_error_suffix=$(escape_markdown_v2 "$error_suffix")
         local final_restore_error_message="${escaped_restore_error_prefix}${restored_filename_error}${escaped_error_suffix}"
         send_telegram_message "$final_restore_error_message" "MarkdownV2"
+        return
     fi
 
-    echo "Перезапуск всех сервисов Remnawave..."
+    echo "Перезапуск всех сервисов Remnawave и вывод логов..."
+    if ! docker compose down; then
+        echo "Предупреждение: Не удалось остановить сервисы Docker Compose перед полным запуском."
+    fi
+
     if ! docker compose up -d; then
-        echo "Ошибка: Не удалось запустить все сервисы docker compose после восстановления."
-        local docker_compose_error_prefix="❌ Ошибка: Не удалось запустить все сервисы docker compose после восстановления."
-        local escaped_docker_compose_error_prefix=$(escape_markdown_v2 "$docker_compose_error_prefix")
-        send_telegram_message "$escaped_docker_compose_error_prefix" "MarkdownV2"
+        echo "Критическая ошибка: Не удалось запустить все сервисы Docker Compose после восстановления."
+        return
     else
         echo "✅ Все сервисы Remnawave запущены."
     fi
 
+    echo -e "\n--- Логи Remnawave ---"
+    docker compose logs -f -t
+    echo -e "--- Конец логов ---"
 }
-
 
 setup_symlink() {
     echo ""
@@ -379,8 +388,8 @@ setup_symlink() {
     if [[ -L "$SYMLINK_PATH" && -e "$SYMLINK_PATH" ]]; then
         echo "Команда быстрого доступа уже активирована"
     elif [[ -e "$SYMLINK_PATH" && ! -L "$SYMLINK_PATH" ]]; then
-          echo "Ошибка: Файл или каталог с именем '$SYMLINK_PATH' уже существует, но не является символической ссылкой."
-          echo "Пожалуйста, удалите его вручную, если хотите создать ссылку."
+            echo "Ошибка: Файл или каталог с именем '$SYMLINK_PATH' уже существует, но не является символической ссылкой."
+            echo "Пожалуйста, удалите его вручную, если хотите создать ссылку."
     else
         echo "Создание команды быстрого доступа..."
         if [[ -d "/usr/local/bin" && -w "/usr/local/bin" ]]; then
@@ -432,7 +441,7 @@ main_menu() {
             1) create_backup ; read -rp "Нажмите Enter для продолжения..." ;;
             2) setup_auto_send ;;
             3) restore_backup ; read -rp "Нажмите Enter для продолжения..." ;;
-            4) setup_symlink ; read -rp "Нажмите Enter для продолжения..." ;;
+            4) setup_symlink ;;
             5) echo "Выход..."; exit 0 ;;
             *) echo "Неверный ввод." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
