@@ -13,9 +13,9 @@
 - активация команды быстрого доступа
 - реализована политика хранения бэкапов
 
-## Установка:
+## Установка (требует root):
 ```
-sudo mkdir -p /opt/rw-backup-restore && sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh)"
+bash <(curl -fsSL https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh)
 ```
 ## Команды:
 - `rw-backup` — быстрый доступ (при активации)
