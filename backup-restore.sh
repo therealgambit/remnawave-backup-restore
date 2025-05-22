@@ -14,7 +14,7 @@ if [[ "$0" != "$SCRIPT_PATH" && ! -f "$SCRIPT_PATH" ]]; then
     echo "📥 Сохраняем скрипт в $SCRIPT_PATH..."
     rm -f "$SYMLINK_PATH"
     mkdir -p "$INSTALL_DIR" || { echo "Ошибка создания $INSTALL_DIR"; exit 1; }
-    curl -fsSL https://raw.githubusercontent.com/distillium/test/main/backup-restore.sh -o "$SCRIPT_PATH" || { echo "Не удалось сохранить скрипт."; exit 1; }
+    curl -fsSL https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh -o "$SCRIPT_PATH" || { echo "Не удалось сохранить скрипт."; exit 1; }
     chmod +x "$SCRIPT_PATH"
 fi
 
