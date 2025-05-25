@@ -12,7 +12,7 @@ SYMLINK_PATH="/usr/local/bin/rw-backup"
 REMNALABS_ROOT_DIR="/opt/remnawave"
 ENV_NODE_FILE=".env-node"
 ENV_FILE=".env"
-SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/test/main/backup-restore.sh"
+SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh"
 SCRIPT_RUN_PATH="$(realpath "$0")"
 
 if [[ -t 0 ]]; then
