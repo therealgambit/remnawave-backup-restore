@@ -27,7 +27,7 @@
 
 ## Установка (требует root):
 ```
-curl -o ~/backup-restore.sh https://raw.githubusercontent.com/distillium/test/main/backup-restore.sh && chmod +x ~/backup-restore.sh && ~/backup-restore.sh
+curl -o ~/backup-restore.sh https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh && chmod +x ~/backup-restore.sh && ~/backup-restore.sh
 ```
 ## Команды:
 - `rw-backup` — быстрый доступ в меню
