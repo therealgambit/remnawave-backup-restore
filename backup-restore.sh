@@ -14,6 +14,11 @@ ENV_NODE_FILE=".env-node"
 ENV_FILE=".env"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh"
 SCRIPT_RUN_PATH="$(realpath "$0")"
+GD_CLIENT_ID=""
+GD_CLIENT_SECRET=""
+GD_REFRESH_TOKEN=""
+GD_FOLDER_ID=""
+UPLOAD_METHOD="telegram"
 
 if [[ -t 0 ]]; then
     RED="\e[31m"
@@ -23,6 +28,7 @@ if [[ -t 0 ]]; then
     CYAN="\e[36m"
     RESET="\e[0m"
     BOLD="\e[1m"
+    LINK="\e[36m"
     USE_ASCII_ART=true
 else
     RED=""
@@ -32,6 +38,7 @@ else
     CYAN=""
     RESET=""
     BOLD=""
+    LINK=""
     USE_ASCII_ART=false
 fi
 
@@ -115,6 +122,22 @@ install_dependencies() {
     echo ""
 }
 
+save_config() {
+    print_message "INFO" "Сохранение конфигурации в ${BOLD}${CONFIG_FILE}${RESET}..."
+    cat > "$CONFIG_FILE" <<EOF
+BOT_TOKEN="$BOT_TOKEN"
+CHAT_ID="$CHAT_ID"
+DB_USER="$DB_USER"
+UPLOAD_METHOD="$UPLOAD_METHOD"
+GD_CLIENT_ID="$GD_CLIENT_ID"
+GD_CLIENT_SECRET="$GD_CLIENT_SECRET"
+GD_REFRESH_TOKEN="$GD_REFRESH_TOKEN"
+GD_FOLDER_ID="$GD_FOLDER_ID"
+EOF
+    chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
+    print_message "SUCCESS" "Конфигурация сохранена."
+}
+
 load_or_create_config() {
     if $USE_ASCII_ART; then clear; fi
     print_ascii_art
@@ -124,28 +147,81 @@ load_or_create_config() {
         source "$CONFIG_FILE"
         echo ""
 
-        if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" || -z "$DB_USER" ]]; then
-            print_message "WARN" "В файле конфигурации отсутствуют необходимые переменные."
-            print_message "ACTION" "Пожалуйста, введите недостающие данные:"
-            echo ""
+        UPLOAD_METHOD=${UPLOAD_METHOD:-telegram}
+        DB_USER=${DB_USER:-postgres}
+        
+        local config_updated=false
 
+        if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" || -z "$DB_USER" ]]; then
+            print_message "WARN" "В файле конфигурации отсутствуют необходимые переменные для Telegram."
+            print_message "ACTION" "Пожалуйста, введите недостающие данные для Telegram (обязательно):"
+            echo ""
             [[ -z "$BOT_TOKEN" ]] && read -rp "   Введите Telegram Bot Token: " BOT_TOKEN
             [[ -z "$CHAT_ID" ]] && read -rp "   Введите Telegram Chat ID: " CHAT_ID
             [[ -z "$DB_USER" ]] && read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
             DB_USER=${DB_USER:-postgres}
+            config_updated=true
             echo ""
+        fi
 
-            cat > "$CONFIG_FILE" <<EOF
-BOT_TOKEN="$BOT_TOKEN"
-CHAT_ID="$CHAT_ID"
-DB_USER="$DB_USER"
-EOF
+        if [[ "$UPLOAD_METHOD" == "google_drive" && ( -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ) ]]; then
+            print_message "WARN" "В файле конфигурации отсутствуют необходимые переменные для Google Drive."
+            print_message "ACTION" "Пожалуйста, введите недостающие данные для Google Drive:"
+            echo ""
+            echo "Если у вас нет Client ID и Client Secret токенов"
+            local guide_url="https://telegra.ph/Nastrojka-Google-API-06-02"
+                print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
+                echo ""
+            [[ -z "$GD_CLIENT_ID" ]] && read -rp "   Введите Google Client ID: " GD_CLIENT_ID
+            [[ -z "$GD_CLIENT_SECRET" ]] && read -rp "   Введите Google Client Secret: " GD_CLIENT_SECRET
+            clear
+            
+            if [[ -z "$GD_REFRESH_TOKEN" ]]; then
+                print_message "WARN" "Для получения Refresh Token необходимо пройти авторизацию в браузере."
+                print_message "INFO" "Откройте следующую ссылку в браузере, авторизуйтесь и скопируйте код:"
+                echo ""
+                local auth_url="https://accounts.google.com/o/oauth2/auth?client_id=${GD_CLIENT_ID}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline"
+                print_message "INFO" "${CYAN}${auth_url}${RESET}"
+                echo ""
+                read -rp "   Введите код из браузера: " AUTH_CODE
+                
+                print_message "INFO" "Получение Refresh Token..."
+                local token_response=$(curl -s -X POST https://oauth2.googleapis.com/token \
+                    -d client_id="$GD_CLIENT_ID" \
+                    -d client_secret="$GD_CLIENT_SECRET" \
+                    -d code="$AUTH_CODE" \
+                    -d redirect_uri="urn:ietf:wg:oauth:2.0:oob" \
+                    -d grant_type="authorization_code")
+                
+                GD_REFRESH_TOKEN=$(echo "$token_response" | jq -r .refresh_token 2>/dev/null)
+                
+                if [[ -z "$GD_REFRESH_TOKEN" || "$GD_REFRESH_TOKEN" == "null" ]]; then
+                    print_message "ERROR" "Не удалось получить Refresh Token. Проверьте Client ID, Client Secret и введенный 'Code'."
+                    exit 1
+                fi
+                print_message "SUCCESS" "Refresh Token успешно получен."
+            fi
+            echo
+                    echo "   📁 Чтобы указать папку Google Drive:"
+                    echo "   1. Создайте и откройте нужную папку в браузере."
+                    echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
+                    echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
+                    echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
+                    echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
+                    echo
 
-            chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
+                    read -rp "   Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
+            config_updated=true
+            echo ""
+        fi
+
+        if $config_updated; then
+            save_config
             print_message "SUCCESS" "Конфигурация дополнена и сохранена в ${BOLD}${CONFIG_FILE}${RESET}"
         else
             print_message "SUCCESS" "Конфигурация успешно загружена из ${BOLD}${CONFIG_FILE}${RESET}."
         fi
+
     else
         if [[ "$SCRIPT_RUN_PATH" != "$SCRIPT_PATH" ]]; then
             print_message "INFO" "Конфигурация не найдена. Скрипт запущен из временного расположения."
@@ -175,14 +251,7 @@ EOF
 
             mkdir -p "$INSTALL_DIR" || { print_message "ERROR" "Не удалось создать каталог установки ${BOLD}${INSTALL_DIR}${RESET}. Проверьте права доступа."; exit 1; }
             mkdir -p "$BACKUP_DIR" || { print_message "ERROR" "Не удалось создать каталог для бэкапов ${BOLD}${BACKUP_DIR}${RESET}. Проверьте права доступа."; exit 1; }
-
-            cat > "$CONFIG_FILE" <<EOF
-BOT_TOKEN="$BOT_TOKEN"
-CHAT_ID="$CHAT_ID"
-DB_USER="$DB_USER"
-EOF
-
-            chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
+            save_config
             print_message "SUCCESS" "Новая конфигурация сохранена в ${BOLD}${CONFIG_FILE}${RESET}"
         fi
     fi
@@ -218,6 +287,11 @@ send_telegram_message() {
     local escaped_message
     escaped_message=$(escape_markdown_v2 "$message")
 
+    if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
+        print_message "ERROR" "Telegram BOT_TOKEN или CHAT_ID не настроены. Сообщение не отправлено."
+        return 1
+    fi
+
     local http_code=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
         -d chat_id="$CHAT_ID" \
         -d text="$escaped_message" \
@@ -238,6 +312,11 @@ send_telegram_document() {
     local parse_mode="MarkdownV2"
     local escaped_caption
     escaped_caption=$(escape_markdown_v2 "$caption")
+
+    if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
+        print_message "ERROR" "Telegram BOT_TOKEN или CHAT_ID не настроены. Документ не отправлен."
+        return 1
+    fi
 
     local api_response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
         -F chat_id="$CHAT_ID" \
@@ -263,6 +342,73 @@ send_telegram_document() {
     fi
 }
 
+get_google_access_token() {
+    if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
+        print_message "ERROR" "Google Drive Client ID, Client Secret или Refresh Token не настроены."
+        return 1
+    fi
+
+    local token_response=$(curl -s -X POST https://oauth2.googleapis.com/token \
+        -d client_id="$GD_CLIENT_ID" \
+        -d client_secret="$GD_CLIENT_SECRET" \
+        -d refresh_token="$GD_REFRESH_TOKEN" \
+        -d grant_type="refresh_token")
+    
+    local access_token=$(echo "$token_response" | jq -r .access_token 2>/dev/null)
+    local expires_in=$(echo "$token_response" | jq -r .expires_in 2>/dev/null)
+
+    if [[ -z "$access_token" || "$access_token" == "null" ]]; then
+        local error_msg=$(echo "$token_response" | jq -r .error_description 2>/dev/null)
+        print_message "ERROR" "Не удалось получить Access Token для Google Drive. Возможно, Refresh Token устарел или недействителен. Ошибка: ${error_msg:-Unknown error}."
+        print_message "ACTION" "Пожалуйста, перенастройте Google Drive в меню 'Настроить способ отправки'."
+        return 1
+    fi
+    echo "$access_token"
+    return 0
+}
+
+send_google_drive_document() {
+    local file_path="$1"
+    local file_name=$(basename "$file_path")
+    local access_token=$(get_google_access_token)
+
+    if [[ -z "$access_token" ]]; then
+        print_message "ERROR" "Не удалось отправить бэкап в Google Drive: не получен Access Token."
+        return 1
+    fi
+
+    local mime_type="application/gzip"
+    local upload_url="https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+
+    local metadata_file=$(mktemp)
+    
+    local metadata="{\"name\": \"$file_name\", \"mimeType\": \"$mime_type\""
+    if [[ -n "$GD_FOLDER_ID" ]]; then
+        metadata="${metadata}, \"parents\": [\"$GD_FOLDER_ID\"]"
+    fi
+    metadata="${metadata}}"
+    
+    echo "$metadata" > "$metadata_file"
+
+    local response=$(curl -s -X POST "$upload_url" \
+        -H "Authorization: Bearer $access_token" \
+        -F "metadata=@$metadata_file;type=application/json" \
+        -F "file=@$file_path;type=$mime_type")
+
+    rm -f "$metadata_file"
+
+    local file_id=$(echo "$response" | jq -r .id 2>/dev/null)
+    local error_message=$(echo "$response" | jq -r .error.message 2>/dev/null)
+    local error_code=$(echo "$response" | jq -r .error.code 2>/dev/null)
+
+    if [[ -n "$file_id" && "$file_id" != "null" ]]; then
+        return 0
+    else
+        print_message "ERROR" "Ошибка при загрузке в Google Drive. Код: ${error_code:-Unknown}. Сообщение: ${error_message:-Unknown error}. Полный ответ API: ${response}"
+        return 1
+    fi
+}
+
 create_backup() {
     print_message "INFO" "Начинаю процесс создания резервной копии..."
     echo ""
@@ -277,13 +423,25 @@ create_backup() {
 
     if ! docker inspect remnawave-db > /dev/null 2>&1 || ! docker container inspect -f '{{.State.Running}}' remnawave-db 2>/dev/null | grep -q "true"; then
         echo -e "${RED}❌ Ошибка: Контейнер ${BOLD}'remnawave-db'${RESET} не найден или не запущен. Невозможно создать бэкап базы данных.${RESET}"
-        send_telegram_message "❌ Ошибка: Контейнер ${BOLD}'remnawave-db'${RESET} не найден или не запущен. Не удалось создать бэкап." "None"; exit 1
+        local error_msg="❌ Ошибка: Контейнер ${BOLD}'remnawave-db'${RESET} не найден или не запущен. Не удалось создать бэкап."
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            send_telegram_message "$error_msg" "None"
+        elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            print_message "ERROR" "Отправка в Google Drive невозможна из-за ошибки с контейнером DB."
+        fi
+        exit 1
     fi
     print_message "INFO" "Создание PostgreSQL дампа и сжатие в файл..."
     if ! docker exec -t "remnawave-db" pg_dumpall -c -U "$DB_USER" | gzip -9 > "$BACKUP_DIR/$BACKUP_FILE_DB"; then
         STATUS=$?
         echo -e "${RED}❌ Ошибка при создании дампа PostgreSQL. Код выхода: ${BOLD}$STATUS${RESET}. Проверьте имя пользователя БД и доступ к контейнеру.${RESET}"
-        send_telegram_message "❌ Ошибка при создании дампа PostgreSQL. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; exit $STATUS
+        local error_msg="❌ Ошибка при создании дампа PostgreSQL. Код выхода: ${BOLD}${STATUS}${RESET}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            send_telegram_message "$error_msg" "None"
+        elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            print_message "ERROR" "Отправка в Google Drive невозможна из-за ошибки с дампом DB."
+        fi
+        exit $STATUS
     fi
     print_message "SUCCESS" "Дамп PostgreSQL успешно создан."
     echo ""
@@ -293,7 +451,12 @@ create_backup() {
     
     if [ -f "$ENV_NODE_PATH" ]; then
         print_message "INFO" "Обнаружен файл ${BOLD}${ENV_NODE_FILE}${RESET}. Добавляем его в архив."
-        cp "$ENV_NODE_PATH" "$BACKUP_DIR/" || { echo -e "${RED}❌ Ошибка при копировании ${BOLD}${ENV_NODE_FILE}${RESET} для бэкапа.${RESET}"; send_telegram_message "❌ Ошибка: Не удалось скопировать ${BOLD}${ENV_NODE_FILE}${RESET} для бэкапа." "None"; exit 1; }
+        cp "$ENV_NODE_PATH" "$BACKUP_DIR/" || { 
+            echo -e "${RED}❌ Ошибка при копировании ${BOLD}${ENV_NODE_FILE}${RESET} для бэкапа.${RESET}"; 
+            local error_msg="❌ Ошибка: Не удалось скопировать ${BOLD}${ENV_NODE_FILE}${RESET} для бэкапа."
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "$error_msg" "None"; fi
+            exit 1; 
+        }
         FILES_TO_ARCHIVE+=("$ENV_NODE_FILE")
     else
         print_message "WARN" "Файл ${BOLD}${ENV_NODE_FILE}${RESET} не найден. Продолжаем без него."
@@ -301,7 +464,12 @@ create_backup() {
 
     if [ -f "$ENV_PATH" ]; then
         print_message "INFO" "Обнаружен файл ${BOLD}${ENV_FILE}${RESET}. Добавляем его в архив."
-        cp "$ENV_PATH" "$BACKUP_DIR/" || { echo -e "${RED}❌ Ошибка при копировании ${BOLD}${ENV_FILE}${RESET} для бэкапа.${RESET}"; send_telegram_message "❌ Ошибка: Не удалось скопировать ${BOLD}${ENV_FILE}${RESET} для бэкапа." "None"; exit 1; }
+        cp "$ENV_PATH" "$BACKUP_DIR/" || { 
+            echo -e "${RED}❌ Ошибка при копировании ${BOLD}${ENV_FILE}${RESET} для бэкапа.${RESET}"; 
+            local error_msg="❌ Ошибка: Не удалось скопировать ${BOLD}${ENV_FILE}${RESET} для бэкапа."
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "$error_msg" "None"; fi
+            exit 1; 
+        }
         FILES_TO_ARCHIVE+=("$ENV_FILE")
     else
         print_message "WARN" "Файл ${BOLD}${ENV_FILE}${RESET} не найден по пути. Продолжаем без него."
@@ -311,7 +479,13 @@ create_backup() {
     if ! tar -czf "$BACKUP_DIR/$BACKUP_FILE_FINAL" -C "$BACKUP_DIR" "${FILES_TO_ARCHIVE[@]}"; then
         STATUS=$?
         echo -e "${RED}❌ Ошибка при архивировании бэкапа. Код выхода: ${BOLD}$STATUS${RESET}. Проверьте наличие свободного места и права доступа.${RESET}"
-        send_telegram_message "❌ Ошибка при архивировании бэкапа. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; exit $STATUS
+        local error_msg="❌ Ошибка при архивировании бэкапа. Код выхода: ${BOLD}${STATUS}${RESET}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            send_telegram_message "$error_msg" "None"
+        elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            print_message "ERROR" "Отправка в Google Drive невозможна из-за ошибки архивации."
+        fi
+        exit $STATUS
     fi
     print_message "SUCCESS" "Архив бэкапа успешно создан: ${BOLD}${BACKUP_DIR}/${BACKUP_FILE_FINAL}${RESET}"
     echo ""
@@ -323,25 +497,49 @@ create_backup() {
     print_message "SUCCESS" "Промежуточные файлы удалены."
     echo ""
 
-    print_message "INFO" "Применение политики хранения бэкапов (оставляем за последние ${BOLD}${RETAIN_BACKUPS_DAYS}${RESET} дней)..."
-    find "$BACKUP_DIR" -maxdepth 1 -name "remnawave_backup_*.tar.gz" -mtime +$RETAIN_BACKUPS_DAYS -delete
-    print_message "SUCCESS" "Политика хранения применена. Старые бэкапы удалены."
-    echo ""
-
-    print_message "INFO" "Отправка бэкапа в Telegram..."
+    print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
     local caption_text=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n📅Дата: '"${DATE}"
 
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
-        if send_telegram_document "$BACKUP_DIR/$BACKUP_FILE_FINAL" "$caption_text"; then
-            print_message "SUCCESS" "Бэкап успешно отправлен в Telegram."
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            if send_telegram_document "$BACKUP_DIR/$BACKUP_FILE_FINAL" "$caption_text"; then
+                print_message "SUCCESS" "Бэкап успешно отправлен в Telegram."
+            else
+                echo -e "${RED}❌ Ошибка при отправке бэкапа в Telegram. Проверьте настройки Telegram API (токен, ID чата).${RESET}"
+            fi
+        elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            if send_google_drive_document "$BACKUP_DIR/$BACKUP_FILE_FINAL"; then
+                print_message "SUCCESS" "Бэкап успешно отправлен в Google Drive."
+                local tg_success_message=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан и отправлен в Google Drive*\n📅Дата: '"${DATE}"
+                if send_telegram_message "$tg_success_message"; then
+                    print_message "SUCCESS" "Уведомление об успешной отправке на Google Drive отправлено в Telegram."
+                else
+                    print_message "ERROR" "Не удалось отправить уведомление в Telegram после загрузки на Google Drive."
+                fi
+            else
+                echo -e "${RED}❌ Ошибка при отправке бэкапа в Google Drive. Проверьте настройки Google Drive API.${RESET}"
+                send_telegram_message "❌ Ошибка: Не удалось отправить бэкап в Google Drive. Подробности в логах сервера." "None"
+            fi
         else
-            echo -e "${RED}❌ Ошибка при отправке бэкапа в Telegram. Проверьте настройки Telegram API (токен, ID чата).${RESET}"
+            print_message "WARN" "Неизвестный метод отправки: ${BOLD}${UPLOAD_METHOD}${RESET}. Бэкап не отправлен."
+            send_telegram_message "❌ Ошибка: Неизвестный метод отправки бэкапа: ${BOLD}${UPLOAD_METHOD}${RESET}. Файл: ${BOLD}${BACKUP_FILE_FINAL}${RESET} не отправлен." "None"
         fi
     else
         echo -e "${RED}❌ Ошибка: Финальный файл бэкапа не найден после создания: ${BOLD}${BACKUP_DIR}/${BACKUP_FILE_FINAL}${RESET}. Отправка невозможна.${RESET}"
-        send_telegram_message "❌ Ошибка: Файл бэкапа не найден после создания: ${BOLD}${BACKUP_FILE_FINAL}${RESET}" "None"; exit 1
+        local error_msg="❌ Ошибка: Файл бэкапа не найден после создания: ${BOLD}${BACKUP_FILE_FINAL}${RESET}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            send_telegram_message "$error_msg" "None"
+        elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            print_message "ERROR" "Отправка в Google Drive невозможна: файл бэкапа не найден."
+        fi
+        exit 1
     fi
+    echo ""
+
+    print_message "INFO" "Применение политики хранения бэкапов (оставляем за последние ${BOLD}${RETAIN_BACKUPS_DAYS}${RESET} дней)..."
+    find "$BACKUP_DIR" -maxdepth 1 -name "remnawave_backup_*.tar.gz" -mtime +$RETAIN_BACKUPS_DAYS -delete
+    print_message "SUCCESS" "Политика хранения применена. Старые бэкапы удалены."
     echo ""
 }
 
@@ -435,6 +633,7 @@ setup_auto_send() {
                     sed -i '/^CRON_TIMES=/d' "$CONFIG_FILE"
                 fi
                 echo "CRON_TIMES=\"${user_friendly_times% }\"" >> "$CONFIG_FILE"
+                save_config
                 print_message "SUCCESS" "Автоматическая отправка установлена на: ${BOLD}${user_friendly_times% }${RESET}."
                 ;;
             2)
@@ -443,6 +642,7 @@ setup_auto_send() {
                 
                 if grep -q "^CRON_TIMES=" "$CONFIG_FILE"; then
                     sed -i '/^CRON_TIMES=/d' "$CONFIG_FILE"
+                    save_config
                 fi
                 print_message "SUCCESS" "Автоматическая отправка успешно отключена."
                 ;;
@@ -594,7 +794,7 @@ restore_backup() {
     if ! tar -xzf "$SELECTED_BACKUP" -C "$temp_restore_dir"; then
         STATUS=$?
         echo -e "${RED}❌ Ошибка при распаковке архива ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}$STATUS${RESET}. Возможно, архив поврежден.${RESET}"
-        send_telegram_message "❌ Ошибка при распаковке архива: ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка при распаковке архива: ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; fi
         rm -rf "$temp_restore_dir"
         exit $STATUS
     fi
@@ -605,7 +805,7 @@ restore_backup() {
         print_message "INFO" "  Обнаружен файл ${BOLD}${ENV_NODE_FILE}${RESET} в архиве. Перемещаем его в ${BOLD}${ENV_NODE_RESTORE_PATH}${RESET}."
         mv "$temp_restore_dir/$ENV_NODE_FILE" "$ENV_NODE_RESTORE_PATH" || {
             echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_NODE_FILE}${RESET}. Проверьте права доступа.${RESET}"
-            send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_NODE_FILE}${RESET} при восстановлении." "None"
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_NODE_FILE}${RESET} при восстановлении." "None"; fi
             rm -rf "$temp_restore_dir"
             exit 1;
         }
@@ -618,7 +818,7 @@ restore_backup() {
         print_message "INFO" "  Обнаружен файл ${BOLD}${ENV_FILE}${RESET} в архиве. Перемещаем его в ${BOLD}${ENV_RESTORE_PATH}${RESET}."
         mv "$temp_restore_dir/$ENV_FILE" "$ENV_RESTORE_PATH" || {
             echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_FILE}${RESET}. Проверьте права доступа.${RESET}"
-            send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_FILE}${RESET} при восстановлении." "None"
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_FILE}${RESET} при восстановлении." "None"; fi
             rm -rf "$temp_restore_dir"
             exit 1;
         }
@@ -633,7 +833,7 @@ restore_backup() {
 
     if [ ! -f "$DUMP_FILE_GZ" ]; then
         echo -e "${RED}❌ Ошибка: Не найден файл дампа (${BOLD}*.sql.gz${RESET}) после распаковки. Архив, возможно, поврежден или некорректен.${RESET}"
-        send_telegram_message "❌ Ошибка: Не найден файл дампа после распаковки из ${BOLD}${SELECTED_BACKUP##*/}${RESET}" "None"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не найден файл дампа после распаковки из ${BOLD}${SELECTED_BACKUP##*/}${RESET}" "None"; fi
         rm -rf "$temp_restore_dir"
         exit 1
     fi
@@ -642,7 +842,7 @@ restore_backup() {
     if ! gunzip "$DUMP_FILE_GZ"; then
         STATUS=$?
         echo -e "${RED}❌ Ошибка при распаковке SQL-дампа. Код выхода: ${BOLD}$STATUS${RESET}. Возможно, файл поврежден.${RESET}"
-        send_telegram_message "❌ Ошибка при распаковке SQL-дампа: ${BOLD}${DUMP_FILE_GZ##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка при распаковке SQL-дампа: ${BOLD}${DUMP_FILE_GZ##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; fi
         rm -rf "$temp_restore_dir"
         exit $STATUS
     fi
@@ -653,12 +853,12 @@ restore_backup() {
 
     if [ ! -f "$SQL_FILE" ]; then
         echo -e "${RED}❌ Ошибка: Распакованный SQL-файл не найден. Это указывает на проблему с распаковкой.${RESET}"
-        send_telegram_message "❌ Ошибка: Распакованный SQL-файл не найден." "None"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Распакованный SQL-файл не найден." "None"; fi
         rm -rf "$temp_restore_dir"
         exit 1
     fi
 
-        local RESTORE_LOG_FILE="/var/log/rw-restore.log"
+    local RESTORE_LOG_FILE="/var/log/rw-restore.log"
 
     print_message "INFO" "Восстановление базы данных из файла: ${BOLD}${SQL_FILE}${RESET}..."
     
@@ -668,7 +868,7 @@ restore_backup() {
         print_message "SUCCESS" "Импорт базы данных успешно завершен."
         local restore_success_prefix="✅ Восстановление Remnawave DB успешно завершено из файла: "
         local restored_filename="${SELECTED_BACKUP##*/}"
-        send_telegram_message "${restore_success_prefix}${restored_filename}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "${restore_success_prefix}${restored_filename}"; fi
     else
         STATUS=$?
         local error_details=""
@@ -689,7 +889,7 @@ restore_backup() {
             error_suffix+="\nПодробности: $error_details"
         fi
 
-        send_telegram_message "${restore_error_prefix}${restored_filename_error}${error_suffix}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "${restore_error_prefix}${restored_filename_error}${error_suffix}"; fi
         
         print_message "ERROR" "ОШИБКА: Восстановление завершилось с ошибкой. SQL-файл не удалён: ${BOLD}${SQL_FILE}${RESET} (во временном каталоге ${BOLD}${temp_restore_dir}${RESET})."
         
@@ -839,6 +1039,93 @@ remove_script() {
     exit 0
 }
 
+configure_upload_method() {
+    while true; do
+        clear
+        print_ascii_art
+        echo "=== Настроить способ отправки бэкапов ==="
+        print_message "INFO" "Текущий способ: ${BOLD}${UPLOAD_METHOD^^}${RESET}"
+        echo ""
+        echo "   1) Установить способ отправки: Telegram"
+        echo "   2) Установить способ отправки: Google Drive"
+        echo "   0) Вернуться в главное меню"
+        echo ""
+        read -rp "Выберите пункт: " choice
+        echo ""
+
+        case $choice in
+            1)
+                UPLOAD_METHOD="telegram"
+                save_config
+                print_message "SUCCESS" "Способ отправки установлен на ${BOLD}Telegram${RESET}."
+                if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
+                    print_message "ACTION" "Пожалуйста, введите данные для Telegram:"
+                    read -rp "   Введите Telegram Bot Token: " BOT_TOKEN
+                    read -rp "   Введите Telegram Chat ID: " CHAT_ID
+                    save_config
+                    print_message "SUCCESS" "Настройки Telegram сохранены."
+                fi
+                ;;
+            2)
+                UPLOAD_METHOD="google_drive"
+                save_config
+                print_message "SUCCESS" "Способ отправки установлен на ${BOLD}Google Drive${RESET}."
+                if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
+                    print_message "ACTION" "Пожалуйста, введите данные для Google Drive API."
+                    echo ""
+                    echo "Если у вас нет Client ID и Client Secret токенов"
+                    local guide_url="https://telegra.ph/Nastrojka-Google-API-06-02"
+                    print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
+                    read -rp "   Введите Google Client ID: " GD_CLIENT_ID
+                    read -rp "   Введите Google Client Secret: " GD_CLIENT_SECRET
+                    clear
+                    
+                    print_message "WARN" "Для получения Refresh Token необходимо пройти авторизацию в браузере."
+                    print_message "INFO" "Откройте следующую ссылку в браузере, авторизуйтесь и скопируйте ${BOLD}код${RESET}:"
+                    echo ""
+                    local auth_url="https://accounts.google.com/o/oauth2/auth?client_id=${GD_CLIENT_ID}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline"
+                    print_message "INFO" "${CYAN}${auth_url}${RESET}"
+                    echo ""
+                    read -rp "Введите код из браузера: " AUTH_CODE
+                    
+                    print_message "INFO" "Получение Refresh Token..."
+                    local token_response=$(curl -s -X POST https://oauth2.googleapis.com/token \
+                        -d client_id="$GD_CLIENT_ID" \
+                        -d client_secret="$GD_CLIENT_SECRET" \
+                        -d code="$AUTH_CODE" \
+                        -d redirect_uri="urn:ietf:wg:oauth:2.0:oob" \
+                        -d grant_type="authorization_code")
+                    
+                    GD_REFRESH_TOKEN=$(echo "$token_response" | jq -r .refresh_token 2>/dev/null)
+                    
+                    if [[ -z "$GD_REFRESH_TOKEN" || "$GD_REFRESH_TOKEN" == "null" ]]; then
+                        print_message "ERROR" "Не удалось получить Refresh Token. Проверьте Client ID, Client Secret и введенный 'Code'. Отправка в Google Drive не будет работать."
+                    else
+                        print_message "SUCCESS" "Refresh Token успешно получен."
+                    fi
+                    echo
+                    echo "   📁 Чтобы указать папку Google Drive:"
+                    echo "   1. Создайте и откройте нужную папку в браузере."
+                    echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
+                    echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
+                    echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
+                    echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
+                    echo
+
+                    read -rp "   Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
+                    save_config
+                    print_message "SUCCESS" "Настройки Google Drive сохранены."
+                fi
+                ;;
+            0) break ;;
+            *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+        esac
+        echo ""
+        read -rp "Нажмите Enter для продолжения..."
+    done
+    echo ""
+}
+
 main_menu() {
     while true; do
         clear
@@ -847,9 +1134,10 @@ main_menu() {
         echo "   1) 💾 Создать бэкап вручную"
         echo "   2) ⏰ Настройка автоматической отправки и уведомлений"
         echo "   3) ♻️ Восстановление из бэкапа"
-        echo "   4) 🔄 Обновить скрипт"
-        echo "   5) 🗑️ Удалить скрипт"
-        echo "   6) ❌ Выход"
+        echo "   4) ⚙️ Настроить способ отправки"
+        echo "   5) 🔄 Обновить скрипт"
+        echo "   6) 🗑️ Удалить скрипт"
+        echo "   7) ❌ Выход"
         echo -e "   —  🚀 Быстрый запуск: ${BOLD}rw-backup${RESET} доступен из любой точки системы"
         echo ""
 
@@ -859,13 +1147,30 @@ main_menu() {
             1) create_backup ; read -rp "Нажмите Enter для продолжения..." ;;
             2) setup_auto_send ;;
             3) restore_backup ;;
-            4) update_script ;;
-            5) remove_script ;;
-            6) echo "Выход..."; exit 0 ;;
+            4) configure_upload_method ;;
+            5) update_script ;;
+            6) remove_script ;;
+            7) echo "Выход..."; exit 0 ;;
             *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
     done
 }
+
+if ! command -v jq &> /dev/null; then
+    print_message "INFO" "Установка пакета 'jq' для парсинга JSON..."
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}❌ Ошибка: Для установки 'jq' требуются права root. Пожалуйста, установите 'jq' вручную (например, 'sudo apt-get install jq') или запустите скрипт с sudo.${RESET}"
+        exit 1
+    fi
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq > /dev/null 2>&1
+        apt-get install -y jq > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось установить 'jq'.${RESET}"; exit 1; }
+        print_message "SUCCESS" "'jq' успешно установлен."
+    else
+        print_message "ERROR" "Не удалось найти менеджер пакетов apt-get. Установите 'jq' вручную."
+        exit 1
+    fi
+fi
 
 if [[ -z "$1" ]]; then
     install_dependencies
