@@ -19,6 +19,7 @@ GD_CLIENT_SECRET=""
 GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
+CRON_TIMES=""
 
 if [[ -t 0 ]]; then
     RED="\e[31m"
@@ -110,7 +111,7 @@ install_dependencies() {
     if command -v apt-get &> /dev/null; then
         print_message "INFO" "Обновление списка пакетов ${BOLD}apt${RESET}..."
         apt-get update -qq > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось обновить список пакетов ${BOLD}apt${RESET}. Проверьте подключение к интернету.${RESET}"; exit 1; }
-        apt-get install -y toilet figlet procps lsb-release whiptail curl gzip > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось установить необходимые пакеты. Проверьте ошибки установки.${RESET}"; exit 1; }
+        apt-get install -y toilet figlet procps lsb-release whiptail curl gzip cron > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось установить необходимые пакеты. Проверьте ошибки установки.${RESET}"; exit 1; }
         print_message "SUCCESS" "Все необходимые пакеты установлены или уже присутствуют в системе."
     else
         print_message "WARN" "Внимание: Не удалось найти менеджер пакетов ${BOLD}'apt-get'${RESET}. Установка зависимостей может потребоваться вручную."
@@ -133,6 +134,7 @@ GD_CLIENT_ID="$GD_CLIENT_ID"
 GD_CLIENT_SECRET="$GD_CLIENT_SECRET"
 GD_REFRESH_TOKEN="$GD_REFRESH_TOKEN"
 GD_FOLDER_ID="$GD_FOLDER_ID"
+CRON_TIMES="$CRON_TIMES"
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
@@ -149,6 +151,7 @@ load_or_create_config() {
 
         UPLOAD_METHOD=${UPLOAD_METHOD:-telegram}
         DB_USER=${DB_USER:-postgres}
+        CRON_TIMES=${CRON_TIMES:-}
         
         local config_updated=false
 
@@ -156,12 +159,25 @@ load_or_create_config() {
             print_message "WARN" "В файле конфигурации отсутствуют необходимые переменные для Telegram."
             print_message "ACTION" "Пожалуйста, введите недостающие данные для Telegram (обязательно):"
             echo ""
-            [[ -z "$BOT_TOKEN" ]] && read -rp "   Введите Telegram Bot Token: " BOT_TOKEN
-            [[ -z "$CHAT_ID" ]] && read -rp "   Введите Telegram Chat ID: " CHAT_ID
+            print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
+            [[ -z "$BOT_TOKEN" ]] && read -rp "   Введите API Token: " BOT_TOKEN
+            echo ""
+            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
+            [[ -z "$CHAT_ID" ]] && read -rp "   Введите свой Telegram ID: " CHAT_ID
+            echo ""
             [[ -z "$DB_USER" ]] && read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
             DB_USER=${DB_USER:-postgres}
             config_updated=true
             echo ""
+        fi
+
+        if [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
+            if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
+                print_message "WARN" "В файле конфигурации обнаружены неполные данные для Google Drive."
+                print_message "WARN" "Способ отправки будет изменён на ${BOLD}Telegram${RESET}."
+                UPLOAD_METHOD="telegram"
+                config_updated=true
+            fi
         fi
 
         if [[ "$UPLOAD_METHOD" == "google_drive" && ( -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ) ]]; then
@@ -197,9 +213,10 @@ load_or_create_config() {
                 
                 if [[ -z "$GD_REFRESH_TOKEN" || "$GD_REFRESH_TOKEN" == "null" ]]; then
                     print_message "ERROR" "Не удалось получить Refresh Token. Проверьте Client ID, Client Secret и введенный 'Code'."
-                    exit 1
+                    print_message "WARN" "Так как настройка Google Drive не завершена, способ отправки будет изменён на ${BOLD}Telegram${RESET}."
+                    UPLOAD_METHOD="telegram"
+                    config_updated=true
                 fi
-                print_message "SUCCESS" "Refresh Token успешно получен."
             fi
             echo
                     echo "   📁 Чтобы указать папку Google Drive:"
@@ -243,8 +260,12 @@ load_or_create_config() {
         else
             print_message "INFO" "Конфигурация не найдена, создаем новую..."
             echo ""
-            read -rp "   Введите Telegram Bot Token: " BOT_TOKEN
-            read -rp "   Введите Telegram Chat ID: " CHAT_ID
+            print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
+            read -rp "   Введите API Token: " BOT_TOKEN
+            echo ""
+            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
+            read -rp "   Введите свой Telegram ID: " CHAT_ID
+            echo ""
             read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
             DB_USER=${DB_USER:-postgres}
             echo ""
@@ -554,7 +575,14 @@ setup_auto_send() {
         clear
         print_ascii_art
         echo "=== Настройка автоматической отправки ==="
-        echo "   1) Включить автоматическую отправку бэкапов"
+        echo ""
+        if [[ -n "$CRON_TIMES" ]]; then
+            print_message "INFO" "Автоматическая отправка настроена на: ${BOLD}${CRON_TIMES}${RESET} по UTC+0."
+        else
+            print_message "INFO" "Автоматическая отправка ${BOLD}выключена${RESET}."
+        fi
+        echo ""
+        echo "   1) Включить/перезаписать автоматическую отправку бэкапов"
         echo "   2) Выключить автоматическую отправку бэкапов"
         echo "   0) Вернуться в главное меню"
         echo ""
@@ -562,20 +590,45 @@ setup_auto_send() {
         echo ""
         case $choice in
             1)
-                read -rp "Введите время отправки (например, 03:00 15:00): " times
+                local server_offset_str=$(date +%z)
+                local offset_sign="${server_offset_str:0:1}"
+                local offset_hours=$((10#${server_offset_str:1:2}))
+                local offset_minutes=$((10#${server_offset_str:3:2}))
+
+                local server_offset_total_minutes=$((offset_hours * 60 + offset_minutes))
+                if [[ "$offset_sign" == "-" ]]; then
+                    server_offset_total_minutes=$(( -server_offset_total_minutes ))
+                fi
+
+                read -rp "Введите желаемое время отправки по UTC+0 (например, 08:00). Вы можете указать несколько времен через пробел: " times
+                
                 valid_times_cron=()
-                user_friendly_times=""
+                local user_friendly_times_local=""
+                cron_times_to_write=()
+
                 invalid_format=false
                 IFS=' ' read -ra arr <<< "$times"
                 for t in "${arr[@]}"; do
                     if [[ $t =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
-                        hour=${BASH_REMATCH[1]}
-                        min=${BASH_REMATCH[2]}
-                        hour_val=$((10#$hour))
-                        min_val=$((10#$min))
-                        if (( hour_val >= 0 && hour_val <= 23 && min_val >= 0 && min_val <= 59 )); then
-                            valid_times_cron+=("$min_val $hour_val")
-                            user_friendly_times+="$t "
+                        local hour_utc_input=$((10#${BASH_REMATCH[1]}))
+                        local min_utc_input=$((10#${BASH_REMATCH[2]}))
+
+                        if (( hour_utc_input >= 0 && hour_utc_input <= 23 && min_utc_input >= 0 && min_utc_input <= 59 )); then
+                            local total_minutes_utc=$((hour_utc_input * 60 + min_utc_input))
+                            local total_minutes_local=$((total_minutes_utc + server_offset_total_minutes))
+
+                            while (( total_minutes_local < 0 )); do
+                                total_minutes_local=$((total_minutes_local + 24 * 60))
+                            done
+                            while (( total_minutes_local >= 24 * 60 )); do
+                                total_minutes_local=$((total_minutes_local - 24 * 60))
+                            done
+
+                            local hour_local=$((total_minutes_local / 60))
+                            local min_local=$((total_minutes_local % 60))
+                            
+                            cron_times_to_write+=("$min_local $hour_local")
+                            user_friendly_times_local+="$t "
                         else
                             print_message "ERROR" "Неверное значение времени: ${BOLD}$t${RESET} (часы 0-23, минуты 0-59)."
                             invalid_format=true
@@ -589,7 +642,7 @@ setup_auto_send() {
                 done
                 echo ""
 
-                if [ "$invalid_format" = true ] || [ ${#valid_times_cron[@]} -eq 0 ]; then
+                if [ "$invalid_format" = true ] || [ ${#cron_times_to_write[@]} -eq 0 ]; then
                     print_message "ERROR" "Автоматическая отправка не настроена из-за ошибок ввода времени. Пожалуйста, попробуйте еще раз."
                     continue
                 fi
@@ -617,8 +670,8 @@ setup_auto_send() {
                 grep -vF "$SCRIPT_PATH backup" "$temp_crontab_file" > "$temp_crontab_file.tmp"
                 mv "$temp_crontab_file.tmp" "$temp_crontab_file"
 
-                for time_entry in "${valid_times_cron[@]}"; do
-                    echo "$time_entry * * * $SCRIPT_PATH backup >> /var/log/rw_backup_cron.log 2>&1" >> "$temp_crontab_file"
+                for time_entry_local in "${cron_times_to_write[@]}"; do
+                    echo "$time_entry_local * * * $SCRIPT_PATH backup >> /var/log/rw_backup_cron.log 2>&1" >> "$temp_crontab_file"
                 done
                 
                 if crontab "$temp_crontab_file"; then
@@ -629,21 +682,16 @@ setup_auto_send() {
 
                 rm -f "$temp_crontab_file"
 
-                if grep -q "^CRON_TIMES=" "$CONFIG_FILE"; then
-                    sed -i '/^CRON_TIMES=/d' "$CONFIG_FILE"
-                fi
-                echo "CRON_TIMES=\"${user_friendly_times% }\"" >> "$CONFIG_FILE"
+                CRON_TIMES="${user_friendly_times_local% }"
                 save_config
-                print_message "SUCCESS" "Автоматическая отправка установлена на: ${BOLD}${user_friendly_times% }${RESET}."
+                print_message "SUCCESS" "Автоматическая отправка установлена на: ${BOLD}${CRON_TIMES}${RESET} по UTC+0."
                 ;;
             2)
                 print_message "INFO" "Отключение автоматической отправки..."
                 (crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH backup") | crontab -
                 
-                if grep -q "^CRON_TIMES=" "$CONFIG_FILE"; then
-                    sed -i '/^CRON_TIMES=/d' "$CONFIG_FILE"
-                    save_config
-                fi
+                CRON_TIMES=""
+                save_config
                 print_message "SUCCESS" "Автоматическая отправка успешно отключена."
                 ;;
             0) break ;;
@@ -1033,9 +1081,6 @@ remove_script() {
     else
         print_message "INFO" "Каталог установки ${BOLD}${INSTALL_DIR}${RESET} не найден."
     fi
-    echo ""
-
-    print_message "SUCCESS" "Процесс удаления завершен."
     exit 0
 }
 
@@ -1044,6 +1089,7 @@ configure_upload_method() {
         clear
         print_ascii_art
         echo "=== Настроить способ отправки бэкапов ==="
+        echo ""
         print_message "INFO" "Текущий способ: ${BOLD}${UPLOAD_METHOD^^}${RESET}"
         echo ""
         echo "   1) Установить способ отправки: Telegram"
@@ -1060,16 +1106,22 @@ configure_upload_method() {
                 print_message "SUCCESS" "Способ отправки установлен на ${BOLD}Telegram${RESET}."
                 if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
                     print_message "ACTION" "Пожалуйста, введите данные для Telegram:"
-                    read -rp "   Введите Telegram Bot Token: " BOT_TOKEN
-                    read -rp "   Введите Telegram Chat ID: " CHAT_ID
+                    echo ""
+                    print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
+                    read -rp "   Введите API Token: " BOT_TOKEN
+                    echo ""
+                    print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
+                    read -rp "   Введите свой Telegram ID: " CHAT_ID
                     save_config
                     print_message "SUCCESS" "Настройки Telegram сохранены."
                 fi
                 ;;
             2)
                 UPLOAD_METHOD="google_drive"
-                save_config
                 print_message "SUCCESS" "Способ отправки установлен на ${BOLD}Google Drive${RESET}."
+                
+                local gd_setup_successful=true
+
                 if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
                     print_message "ACTION" "Пожалуйста, введите данные для Google Drive API."
                     echo ""
@@ -1078,6 +1130,7 @@ configure_upload_method() {
                     print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
                     read -rp "   Введите Google Client ID: " GD_CLIENT_ID
                     read -rp "   Введите Google Client Secret: " GD_CLIENT_SECRET
+                    
                     clear
                     
                     print_message "WARN" "Для получения Refresh Token необходимо пройти авторизацию в браузере."
@@ -1099,22 +1152,34 @@ configure_upload_method() {
                     GD_REFRESH_TOKEN=$(echo "$token_response" | jq -r .refresh_token 2>/dev/null)
                     
                     if [[ -z "$GD_REFRESH_TOKEN" || "$GD_REFRESH_TOKEN" == "null" ]]; then
-                        print_message "ERROR" "Не удалось получить Refresh Token. Проверьте Client ID, Client Secret и введенный 'Code'. Отправка в Google Drive не будет работать."
+                        print_message "ERROR" "Не удалось получить Refresh Token. Проверьте введенные данные."
+                        print_message "WARN" "Настройка не завершена, способ отправки будет изменён на ${BOLD}Telegram${RESET}."
+                        UPLOAD_METHOD="telegram"
+                        gd_setup_successful=false
                     else
                         print_message "SUCCESS" "Refresh Token успешно получен."
                     fi
                     echo
-                    echo "   📁 Чтобы указать папку Google Drive:"
-                    echo "   1. Создайте и откройте нужную папку в браузере."
-                    echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
-                    echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
-                    echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
-                    echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
-                    echo
+                    
+                    if $gd_setup_successful; then
+                        echo "   📁 Чтобы указать папку Google Drive:"
+                        echo "   1. Создайте и откройте нужную папку в браузере."
+                        echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
+                        echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
+                        echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
+                        echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
+                        echo
 
-                    read -rp "   Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
-                    save_config
+                        read -rp "   Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
+                    fi
+                fi
+
+                save_config
+
+                if $gd_setup_successful; then
                     print_message "SUCCESS" "Настройки Google Drive сохранены."
+                else
+                    print_message "SUCCESS" "Способ отправки установлен на ${BOLD}Telegram${RESET}."
                 fi
                 ;;
             0) break ;;
@@ -1126,18 +1191,183 @@ configure_upload_method() {
     echo ""
 }
 
+configure_settings() {
+    while true; do
+        clear
+        print_ascii_art
+        echo "     === Изменить конфигурацию ==="
+        echo ""
+        echo "   1) Изменить настройки Telegram"
+        echo "   2) Изменить настройки Google Drive"
+        echo "   3) Изменить имя пользователя PostgreSQL"
+        echo "   0) Вернуться в главное меню"
+        echo ""
+        read -rp "Выберите пункт: " choice
+        echo ""
+
+        case $choice in
+            1)
+                while true; do
+                    clear
+                    print_ascii_art
+                    echo "=== Изменить настройки Telegram ==="
+                    echo ""
+                    print_message "INFO" "Текущий API Token: ${BOLD}${BOT_TOKEN}${RESET}"
+                    print_message "INFO" "Текущий Telegram ID: ${BOLD}${CHAT_ID}${RESET}"
+                    echo ""
+                    echo "   1) Изменить API Token"
+                    echo "   2) Изменить Telegram ID"
+                    echo "   0) Назад"
+                    echo ""
+                    read -rp "Выберите пункт: " telegram_choice
+                    echo ""
+
+                    case $telegram_choice in
+                        1)
+                            print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
+                            read -rp "   Введите новый API Token: " NEW_BOT_TOKEN
+                            BOT_TOKEN="$NEW_BOT_TOKEN"
+                            save_config
+                            print_message "SUCCESS" "API Token успешно обновлен."
+                            ;;
+                        2)
+                            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
+                            read -rp "   Введите новый Telegram ID: " NEW_CHAT_ID
+                            CHAT_ID="$NEW_CHAT_ID"
+                            save_config
+                            print_message "SUCCESS" "Telegram ID успешно обновлен."
+                            ;;
+                        0) break ;;
+                        *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+                    esac
+                    echo ""
+                    read -rp "Нажмите Enter для продолжения..."
+                done
+                ;;
+            2)
+                while true; do
+                    clear
+                    print_ascii_art
+                    echo "=== Изменить настройки Google Drive ==="
+                    echo ""
+                    print_message "INFO" "Текущий Client ID: ${BOLD}${GD_CLIENT_ID:0:8}...${RESET}"
+                    print_message "INFO" "Текущий Client Secret: ${BOLD}${GD_CLIENT_SECRET:0:8}...${RESET}"
+                    print_message "INFO" "Текущий Refresh Token: ${BOLD}${GD_REFRESH_TOKEN:0:8}...${RESET}"
+                    print_message "INFO" "Текущий Drive Folder ID: ${BOLD}${GD_FOLDER_ID:-Корневая папка}${RESET}"
+                    echo ""
+                    echo "   1) Изменить Google Client ID"
+                    echo "   2) Изменить Google Client Secret"
+                    echo "   3) Изменить Google Refresh Token (потребуется повторная авторизация)"
+                    echo "   4) Изменить Google Drive Folder ID"
+                    echo "   0) Назад"
+                    echo ""
+                    read -rp "Выберите пункт: " gd_choice
+                    echo ""
+
+                    case $gd_choice in
+                        1)
+                            echo "Если у вас нет Client ID и Client Secret токенов"
+                            local guide_url="https://telegra.ph/Nastrojka-Google-API-06-02"
+                            print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
+                            read -rp "   Введите новый Google Client ID: " NEW_GD_CLIENT_ID
+                            GD_CLIENT_ID="$NEW_GD_CLIENT_ID"
+                            save_config
+                            print_message "SUCCESS" "Google Client ID успешно обновлен."
+                            ;;
+                        2)
+                            echo "Если у вас нет Client ID и Client Secret токенов"
+                            local guide_url="https://telegra.ph/Nastrojka-Google-API-06-02"
+                            print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
+                            read -rp "   Введите новый Google Client Secret: " NEW_GD_CLIENT_SECRET
+                            GD_CLIENT_SECRET="$NEW_GD_CLIENT_SECRET"
+                            save_config
+                            print_message "SUCCESS" "Google Client Secret успешно обновлен."
+                            ;;
+                        3)
+                            clear
+                            print_message "WARN" "Для получения нового Refresh Token необходимо пройти авторизацию в браузере."
+                            print_message "INFO" "Откройте следующую ссылку в браузере, авторизуйтесь и скопируйте ${BOLD}код${RESET}:"
+                            echo ""
+                            local auth_url="https://accounts.google.com/o/oauth2/auth?client_id=${GD_CLIENT_ID}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline"
+                            print_message "INFO" "${CYAN}${auth_url}${RESET}"
+                            echo ""
+                            read -rp "Введите код из браузера: " AUTH_CODE
+                            
+                            print_message "INFO" "Получение Refresh Token..."
+                            local token_response=$(curl -s -X POST https://oauth2.googleapis.com/token \
+                                -d client_id="$GD_CLIENT_ID" \
+                                -d client_secret="$GD_CLIENT_SECRET" \
+                                -d code="$AUTH_CODE" \
+                                -d redirect_uri="urn:ietf:wg:oauth:2.0:oob" \
+                                -d grant_type="authorization_code")
+                            
+                            NEW_GD_REFRESH_TOKEN=$(echo "$token_response" | jq -r .refresh_token 2>/dev/null)
+                            
+                            if [[ -z "$NEW_GD_REFRESH_TOKEN" || "$NEW_GD_REFRESH_TOKEN" == "null" ]]; then
+                                print_message "ERROR" "Не удалось получить Refresh Token. Проверьте введенные данные."
+                                print_message "WARN" "Настройка не завершена."
+                            else
+                                GD_REFRESH_TOKEN="$NEW_GD_REFRESH_TOKEN"
+                                save_config
+                                print_message "SUCCESS" "Refresh Token успешно обновлен."
+                            fi
+                            ;;
+                        4)
+                            echo
+                            echo "   📁 Чтобы указать папку Google Drive:"
+                            echo "   1. Создайте и откройте нужную папку в браузере."
+                            echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
+                            echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
+                            echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
+                            echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
+                            echo
+                            read -rp "   Введите новый Google Drive Folder ID (оставьте пустым для корневой папки): " NEW_GD_FOLDER_ID
+                            GD_FOLDER_ID="$NEW_GD_FOLDER_ID"
+                            save_config
+                            print_message "SUCCESS" "Google Drive Folder ID успешно обновлен."
+                            ;;
+                        0) break ;;
+                        *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+                    esac
+                    echo ""
+                    read -rp "Нажмите Enter для продолжения..."
+                done
+                ;;
+            3)
+                clear
+                print_ascii_art
+                echo "=== Изменить имя пользователя PostgreSQL ==="
+                echo ""
+                print_message "INFO" "Текущее имя пользователя PostgreSQL: ${BOLD}${DB_USER}${RESET}"
+                echo ""
+                read -rp "   Введите новое имя пользователя PostgreSQL (по умолчанию postgres): " NEW_DB_USER
+                DB_USER="${NEW_DB_USER:-postgres}"
+                save_config
+                print_message "SUCCESS" "Имя пользователя PostgreSQL успешно обновлено на ${BOLD}${DB_USER}${RESET}."
+                echo ""
+                read -rp "Нажмите Enter для продолжения..."
+                ;;
+            0) break ;;
+            *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+        esac
+        echo ""
+    done
+}
+
 main_menu() {
     while true; do
         clear
         print_ascii_art
-        echo "========= Главное меню ========="
+        echo "          === Главное меню ===          "
+        echo ""
         echo "   1) 💾 Создать бэкап вручную"
         echo "   2) ⏰ Настройка автоматической отправки и уведомлений"
         echo "   3) ♻️ Восстановление из бэкапа"
         echo "   4) ⚙️ Настроить способ отправки"
-        echo "   5) 🔄 Обновить скрипт"
-        echo "   6) 🗑️ Удалить скрипт"
-        echo "   7) ❌ Выход"
+        echo "   5) ✏️ Изменить конфигурацию"
+        echo "   6) 🔄 Обновить скрипт"
+        echo "   7) 🗑️ Удалить скрипт"
+        echo "   8) ❌ Выход"
         echo -e "   —  🚀 Быстрый запуск: ${BOLD}rw-backup${RESET} доступен из любой точки системы"
         echo ""
 
@@ -1148,9 +1378,10 @@ main_menu() {
             2) setup_auto_send ;;
             3) restore_backup ;;
             4) configure_upload_method ;;
-            5) update_script ;;
-            6) remove_script ;;
-            7) echo "Выход..."; exit 0 ;;
+            5) configure_settings ;;
+            6) update_script ;;
+            7) remove_script ;;
+            8) echo "Выход..."; exit 0 ;;
             *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
     done
