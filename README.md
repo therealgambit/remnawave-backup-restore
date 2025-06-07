@@ -1,9 +1,4 @@
-<div align="center">
-  <a href="https://remna.st">
-    <img src="https://cdn.remna.st/logos/logo.svg" alt="Logo" width="160" height="160">
-  </a>
-     <h1 align="center">REMNAWAVE<br>BACKUP & RESTORE<br>by distillium</h3>
-</div>
+![A98EA8CC-6343-4BD5-BB2D-59BD39D3A2BB](https://github.com/user-attachments/assets/f4ca3912-7b29-43e2-95e3-ebc9b98fd45a)
 
 > [!CAUTION]
 > **ЭТОТ СКРИПТ ПРЕДСТАВЛЕН ДЛЯ ВЫПОЛНЕНИЯ ЗНАЧИМЫХ ОПЕРАЦИЙ ПО ОБСЛУЖИВАНИЮ БАЗЫ ДАННЫХ REMNAWAVE. ХОТЯ ОН ТЩАТЕЛЬНО ПРОВЕРЕН, ЕГО ФУНКЦИИ ЗАТРАГИВАЮТ ПОЛНОСТЬЮ БАЗУ ДАННЫХ И ЕЕ КОМПОНЕНТЫ. РЕКОМЕНДУЕТСЯ ВНИМАТЕЛЬНО СЛЕДОВАТЬ ИНСТРУКЦИЯМ ПО ХОДУ ВЫПОЛНЕНИЯ СКРИПТА ПЕРЕД ВЫПОЛНЕНИЕМ ЛЮБЫХ КОМАНД.**
