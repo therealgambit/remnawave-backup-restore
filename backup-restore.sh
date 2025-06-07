@@ -9,10 +9,10 @@ SCRIPT_NAME="backup-restore.sh"
 SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
 RETAIN_BACKUPS_DAYS=7
 SYMLINK_PATH="/usr/local/bin/rw-backup"
-REMNALABS_ROOT_DIR="/opt/remnawave"
+REMNALABS_ROOT_DIR=""
 ENV_NODE_FILE=".env-node"
 ENV_FILE=".env"
-SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh"
+SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/test/main/backup-restore.sh"
 SCRIPT_RUN_PATH="$(realpath "$0")"
 GD_CLIENT_ID=""
 GD_CLIENT_SECRET=""
@@ -20,6 +20,7 @@ GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
+VERSION="1.0.2"
 
 if [[ -t 0 ]]; then
     RED="\e[31m"
@@ -135,6 +136,7 @@ GD_CLIENT_SECRET="$GD_CLIENT_SECRET"
 GD_REFRESH_TOKEN="$GD_REFRESH_TOKEN"
 GD_FOLDER_ID="$GD_FOLDER_ID"
 CRON_TIMES="$CRON_TIMES"
+REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR" # Добавлена новая переменная
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
@@ -152,6 +154,7 @@ load_or_create_config() {
         UPLOAD_METHOD=${UPLOAD_METHOD:-telegram}
         DB_USER=${DB_USER:-postgres}
         CRON_TIMES=${CRON_TIMES:-}
+        REMNALABS_ROOT_DIR=${REMNALABS_ROOT_DIR:-}
         
         local config_updated=false
 
@@ -170,6 +173,25 @@ load_or_create_config() {
             config_updated=true
             echo ""
         fi
+
+        if [[ -z "$REMNALABS_ROOT_DIR" ]]; then
+            print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
+            echo "   1) /opt/remnawave"
+            echo "   2) /root/remnawave"
+            echo ""
+            local remnawave_path_choice
+            while true; do
+                read -rp "   Выберите вариант (1 или 2): " remnawave_path_choice
+                case "$remnawave_path_choice" in
+                    1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                    2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                    *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                esac
+            done
+            config_updated=true
+            echo ""
+        fi
+
 
         if [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
             if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
@@ -268,6 +290,21 @@ load_or_create_config() {
             echo ""
             read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
             DB_USER=${DB_USER:-postgres}
+            echo ""
+
+            print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
+            echo "   1) /opt/remnawave"
+            echo "   2) /root/remnawave"
+            echo ""
+            local remnawave_path_choice
+            while true; do
+                read -rp "   Выберите вариант (1 или 2): " remnawave_path_choice
+                case "$remnawave_path_choice" in
+                    1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                    2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                    *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                esac
+            done
             echo ""
 
             mkdir -p "$INSTALL_DIR" || { print_message "ERROR" "Не удалось создать каталог установки ${BOLD}${INSTALL_DIR}${RESET}. Проверьте права доступа."; exit 1; }
@@ -520,7 +557,7 @@ create_backup() {
 
     print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
-    local caption_text=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n📅Дата: '"${DATE}"
+    local caption_text=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n📅 Дата: '"${DATE}"
 
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
         if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
@@ -967,7 +1004,7 @@ restore_backup() {
 }
 
 update_script() {
-    print_message "INFO" "Начинаю процесс обновления скрипта..."
+    print_message "INFO" "Начинаю процесс проверки обновлений..."
     echo ""
     if [[ "$EUID" -ne 0 ]]; then
         echo -e "${RED}⛔ Для обновления скрипта требуются права root. Пожалуйста, запустите с '${BOLD}sudo'${RESET}.${RESET}"
@@ -975,62 +1012,122 @@ update_script() {
         return
     fi
 
-    TEMP_SCRIPT_PATH="${INSTALL_DIR}/backup-restore.sh.tmp"
-    print_message "INFO" "Загрузка последней версии скрипта с GitHub..."
-
-    if curl -fsSL "$SCRIPT_REPO_URL" -o "$TEMP_SCRIPT_PATH"; then
-        if [[ -s "$TEMP_SCRIPT_PATH" ]] && head -n 1 "$TEMP_SCRIPT_PATH" | grep -q -e '^#!.*bash'; then
-            if cmp -s "$SCRIPT_PATH" "$TEMP_SCRIPT_PATH"; then
-                print_message "INFO" "У вас уже установлена последняя версия скрипта. Обновление не требуется."
-                rm -f "$TEMP_SCRIPT_PATH"
-                read -rp "Нажмите Enter для продолжения..."
-                return
-            fi
-
-            print_message "SUCCESS" "Загруженный скрипт успешно проверен."
-            echo ""
-
-            print_message "INFO" "Удаление старых резервных копий скрипта..."
-            find "$(dirname "$SCRIPT_PATH")" -maxdepth 1 -name "${SCRIPT_NAME}.bak.*" -type f -delete
-            print_message "SUCCESS" "Старые резервные копии скрипта удалены."
-            echo ""
-            
-            BACKUP_PATH_SCRIPT="${SCRIPT_PATH}.bak.$(date +%s)"
-            print_message "INFO" "Создание резервной копии текущего скрипта..."
-            cp "$SCRIPT_PATH" "$BACKUP_PATH_SCRIPT" || {
-                echo -e "${RED}❌ Не удалось создать резервную копию ${BOLD}${SCRIPT_PATH}${RESET}. Обновление отменено.${RESET}"
-                rm -f "$TEMP_SCRIPT_PATH"
-                read -rp "Нажмите Enter для продолжения..."
-                return
-            }
-            print_message "SUCCESS" "Резервная копия текущего скрипта успешно создана."
-            echo ""
-
-            mv "$TEMP_SCRIPT_PATH" "$SCRIPT_PATH" || {
-                echo -e "${RED}❌ Ошибка перемещения временного файла в ${BOLD}${SCRIPT_PATH}${RESET}. Пожалуйста, проверьте права доступа.${RESET}"
-                echo -e "${YELLOW}⚠️ Восстановление из резервной копии ${BOLD}${BACKUP_PATH_SCRIPT}${RESET}...${RESET}"
-                mv "$BACKUP_PATH_SCRIPT" "$SCRIPT_PATH"
-                rm -f "$TEMP_SCRIPT_PATH"
-                read -rp "Нажмите Enter для продолжения..."
-                return
-            }
-            chmod +x "$SCRIPT_PATH"
-            print_message "SUCCESS" "Скрипт успешно обновлен до последней версии."
-            echo ""
-            print_message "INFO" "Для применения изменений скрипт будет перезапущен..."
-            read -rp "Нажмите Enter для перезапуска."
-            exec "$SCRIPT_PATH" "$@"
-            exit 0
-        else
-            echo -e "${RED}❌ Ошибка: Загруженный файл пуст или не является исполняемым bash-скриптом. Обновление невозможно.${RESET}"
-            rm -f "$TEMP_SCRIPT_PATH"
-        fi
-    else
-        echo -e "${RED}❌ Ошибка при загрузке новой версии с GitHub. Проверьте URL или сетевое соединение.${RESET}"
-        rm -f "$TEMP_SCRIPT_PATH"
+    # Загрузка только информации о версии с GitHub во временный файл
+    print_message "INFO" "Получение информации о последней версии скрипта с GitHub..."
+    local TEMP_REMOTE_VERSION_FILE=$(mktemp)
+    
+    if ! curl -fsSL "$SCRIPT_REPO_URL" 2>/dev/null | head -n 100 > "$TEMP_REMOTE_VERSION_FILE"; then
+        print_message "ERROR" "Не удалось загрузить информацию о новой версии с GitHub. Проверьте URL или сетевое соединение."
+        rm -f "$TEMP_REMOTE_VERSION_FILE"
+        read -rp "Нажмите Enter для продолжения..."
+        return
     fi
-    read -rp "Нажмите Enter для продолжения..."
+
+    # Извлекаем удаленную версию из временного файла
+    REMOTE_VERSION=$(grep -m 1 "^VERSION=" "$TEMP_REMOTE_VERSION_FILE" | cut -d'"' -f2)
+    rm -f "$TEMP_REMOTE_VERSION_FILE" # Удаляем временный файл
+
+    if [[ -z "$REMOTE_VERSION" ]]; then
+        print_message "ERROR" "Не удалось извлечь информацию о версии из удаленного скрипта. Возможно, формат переменной VERSION изменился или она отсутствует в первых 100 строках."
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    fi
+
+    if [[ -z "$REMOTE_VERSION" ]]; then
+        print_message "ERROR" "Не удалось извлечь информацию о версии из удаленного скрипта. Возможно, формат переменной VERSION изменился."
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    fi
+
+    print_message "INFO" "Текущая версия: ${BOLD}${YELLOW}${VERSION}${RESET}"
+    print_message "INFO" "Доступная версия: ${BOLD}${GREEN}${REMOTE_VERSION}${RESET}"
     echo ""
+
+    compare_versions() {
+        local v1="$1"
+        local v2="$2"
+        local v1_num=$(echo "$v1" | sed 's/[^0-9.]*//g')
+        local v1_char=$(echo "$v1" | sed 's/[0-9.]*//g')
+        local v2_num=$(echo "$v2" | sed 's/[^0-9.]*//g')
+        local v2_char=$(echo "$v2" | sed 's/[0-9.]*//g')
+
+        if printf '%s\n' "$v1_num" "$v2_num" | sort -V | head -n 1 | grep -q "$v2_num"; then
+            if [[ "$v1_num" == "$v2_num" ]]; then
+                if [[ "$v1_char" < "$v2_char" ]]; then
+                    return 1
+                else
+                    return 0
+                fi
+            else
+                return 1
+            fi
+        else
+            return 0
+        fi
+    }
+
+    if compare_versions "$VERSION" "$REMOTE_VERSION"; then
+        print_message "INFO" "У вас установлена актуальная версия скрипта. Обновление не требуется."
+        rm -f "$TEMP_SCRIPT_PATH"
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    else
+        print_message "ACTION" "Доступно обновление до версии ${BOLD}${REMOTE_VERSION}${RESET}."
+        echo -e -n "Хотите обновить скрипт? Введите ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: "
+        read -r confirm_update
+        echo ""
+
+        if [[ "${confirm_update,,}" != "y" ]]; then
+            print_message "WARN" "Обновление отменено пользователем. Возврат в главное меню."
+            read -rp "Нажмите Enter для продолжения..."
+            return
+        fi
+    fi
+
+    local TEMP_SCRIPT_PATH="${INSTALL_DIR}/backup-restore.sh.tmp"
+    print_message "INFO" "Загрузка обновления..."
+    if ! curl -fsSL "$SCRIPT_REPO_URL" -o "$TEMP_SCRIPT_PATH"; then
+        print_message "ERROR" "Не удалось загрузить новую версию скрипта."
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    fi
+
+    if [[ ! -s "$TEMP_SCRIPT_PATH" ]] || ! head -n 1 "$TEMP_SCRIPT_PATH" | grep -q -e '^#!.*bash'; then
+        print_message "ERROR" "Загруженный файл пуст или не является исполняемым bash-скриптом. Обновление невозможно."
+        rm -f "$TEMP_SCRIPT_PATH"
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    fi
+
+    print_message "INFO" "Удаление старых резервных копий скрипта..."
+    find "$(dirname "$SCRIPT_PATH")" -maxdepth 1 -name "${SCRIPT_NAME}.bak.*" -type f -delete
+    echo ""
+    
+    local BACKUP_PATH_SCRIPT="${SCRIPT_PATH}.bak.$(date +%s)"
+    print_message "INFO" "Создание резервной копии текущего скрипта..."
+    cp "$SCRIPT_PATH" "$BACKUP_PATH_SCRIPT" || {
+        echo -e "${RED}❌ Не удалось создать резервную копию ${BOLD}${SCRIPT_PATH}${RESET}. Обновление отменено.${RESET}"
+        rm -f "$TEMP_SCRIPT_PATH"
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    }
+    echo ""
+
+    mv "$TEMP_SCRIPT_PATH" "$SCRIPT_PATH" || {
+        echo -e "${RED}❌ Ошибка перемещения временного файла в ${BOLD}${SCRIPT_PATH}${RESET}. Пожалуйста, проверьте права доступа.${RESET}"
+        echo -e "${YELLOW}⚠️ Восстановление из резервной копии ${BOLD}${BACKUP_PATH_SCRIPT}${RESET}...${RESET}"
+        mv "$BACKUP_PATH_SCRIPT" "$SCRIPT_PATH"
+        rm -f "$TEMP_SCRIPT_PATH"
+        read -rp "Нажмите Enter для продолжения..."
+        return
+    }
+    chmod +x "$SCRIPT_PATH"
+    print_message "SUCCESS" "Скрипт успешно обновлен до версии ${BOLD}${REMOTE_VERSION}${RESET}."
+    echo ""
+    print_message "INFO" "Для применения изменений скрипт будет перезапущен..."
+    read -rp "Нажмите Enter для перезапуска."
+    exec "$SCRIPT_PATH" "$@"
+    exit 0
 }
 
 remove_script() {
@@ -1200,6 +1297,7 @@ configure_settings() {
         echo "   1) Изменить настройки Telegram"
         echo "   2) Изменить настройки Google Drive"
         echo "   3) Изменить имя пользователя PostgreSQL"
+        echo "   4) Изменить путь Remnawave"
         echo "   0) Вернуться в главное меню"
         echo ""
         read -rp "Выберите пункт: " choice
@@ -1344,6 +1442,31 @@ configure_settings() {
                 DB_USER="${NEW_DB_USER:-postgres}"
                 save_config
                 print_message "SUCCESS" "Имя пользователя PostgreSQL успешно обновлено на ${BOLD}${DB_USER}${RESET}."
+                echo ""
+                read -rp "Нажмите Enter для продолжения..."
+                ;;
+            4)
+                clear
+                print_ascii_art
+                echo "=== Изменить путь Remnawave ==="
+                echo ""
+                print_message "INFO" "Текущий путь Remnawave: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
+                echo ""
+                print_message "ACTION" "Выберите новый путь для панели Remnawave:"
+                echo "   1) /opt/remnawave"
+                echo "   2) /root/remnawave"
+                echo ""
+                local new_remnawave_path_choice
+                while true; do
+                    read -rp "   Выберите вариант (1 или 2): " new_remnawave_path_choice
+                    case "$new_remnawave_path_choice" in
+                        1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                        2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                        *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                    esac
+                done
+                save_config
+                print_message "SUCCESS" "Путь Remnawave успешно обновлен на ${BOLD}${REMNALABS_ROOT_DIR}${RESET}."
                 echo ""
                 read -rp "Нажмите Enter для продолжения..."
                 ;;
