@@ -20,39 +20,27 @@ GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
-VERSION="1.0.2a"
+VERSION="1.0.2b"
 
 if [[ -t 0 ]]; then
-    RED="\e[31m"
-    GREEN="\e[32m"
-    YELLOW="\e[33m"
-    GRAY="\e[37m"
-    CYAN="\e[36m"
-    RESET="\e[0m"
-    BOLD="\e[1m"
-    LINK="\e[36m"
-    USE_ASCII_ART=true
+    RED=$'\e[31m'
+    GREEN=$'\e[32m'
+    YELLOW=$'\e[33m'
+    GRAY=$'\e[37m'
+    LIGHT_GRAY=$'\e[90m'
+    CYAN=$'\e[36m'
+    RESET=$'\e[0m'
+    BOLD=$'\e[1m'
 else
     RED=""
     GREEN=""
     YELLOW=""
     GRAY=""
+    LIGHT_GRAY=""
     CYAN=""
     RESET=""
     BOLD=""
-    LINK=""
-    USE_ASCII_ART=false
 fi
-
-print_ascii_art() {
-    if $USE_ASCII_ART && command -v toilet &> /dev/null; then
-        echo -e "\e[1;37m"
-        toilet -f standard -F metal "remnawave"
-        echo -e "\e[0m"
-    elif $USE_ASCII_ART; then
-        echo "remnawave"
-    fi
-}
 
 print_message() {
     local type="$1"
@@ -65,6 +53,7 @@ print_message() {
         "WARN") color_code="$YELLOW" ;;
         "ERROR") color_code="$RED" ;;
         "ACTION") color_code="$CYAN" ;;
+        "LINK") color_code="$CYAN" ;;
         *) type="INFO" ;;
     esac
 
@@ -136,15 +125,13 @@ GD_CLIENT_SECRET="$GD_CLIENT_SECRET"
 GD_REFRESH_TOKEN="$GD_REFRESH_TOKEN"
 GD_FOLDER_ID="$GD_FOLDER_ID"
 CRON_TIMES="$CRON_TIMES"
-REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR" # Добавлена новая переменная
+REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR"
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
 }
 
 load_or_create_config() {
-    if $USE_ASCII_ART; then clear; fi
-    print_ascii_art
 
     if [[ -f "$CONFIG_FILE" ]]; then
         print_message "INFO" "Загрузка конфигурации..."
@@ -176,12 +163,12 @@ load_or_create_config() {
 
         if [[ -z "$REMNALABS_ROOT_DIR" ]]; then
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "   1) /opt/remnawave"
-            echo "   2) /root/remnawave"
+            echo "   1. /opt/remnawave"
+            echo "   2. /root/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "   Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "  ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
@@ -270,9 +257,9 @@ load_or_create_config() {
 
             if mv "$SCRIPT_RUN_PATH" "$SCRIPT_PATH"; then
                 chmod +x "$SCRIPT_PATH"
+                clear
                 print_message "SUCCESS" "Скрипт успешно перемещен в ${BOLD}${SCRIPT_PATH}${RESET}."
-                echo ""
-                print_message "ACTION" "Перезапускаем скрипт из нового расположения для завершения настройки..."
+                print_message "ACTION" "Перезапускаем скрипт из нового расположения для завершения настройки."
                 exec "$SCRIPT_PATH" "$@"
                 exit 0
             else
@@ -293,12 +280,12 @@ load_or_create_config() {
             echo ""
 
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "   1) /opt/remnawave"
-            echo "   2) /root/remnawave"
+            echo "   1. /opt/remnawave"
+            echo "   2. /root/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "   Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "   ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
@@ -610,8 +597,7 @@ setup_auto_send() {
     fi
     while true; do
         clear
-        print_ascii_art
-        echo "=== Настройка автоматической отправки ==="
+        echo -e "${GREEN}${BOLD}Настройка автоматической отправки${RESET}"
         echo ""
         if [[ -n "$CRON_TIMES" ]]; then
             print_message "INFO" "Автоматическая отправка настроена на: ${BOLD}${CRON_TIMES}${RESET} по UTC+0."
@@ -619,11 +605,12 @@ setup_auto_send() {
             print_message "INFO" "Автоматическая отправка ${BOLD}выключена${RESET}."
         fi
         echo ""
-        echo "   1) Включить/перезаписать автоматическую отправку бэкапов"
-        echo "   2) Выключить автоматическую отправку бэкапов"
-        echo "   0) Вернуться в главное меню"
+        echo "   1. Включить/перезаписать автоматическую отправку бэкапов"
+        echo "   2. Выключить автоматическую отправку бэкапов"
         echo ""
-        read -rp "Выберите пункт: " choice
+        echo "   0. Вернуться в главное меню"
+        echo ""
+        read -rp "${GREEN}[?]${RESET} Выберите пункт: " choice
         echo ""
         case $choice in
             1)
@@ -637,7 +624,8 @@ setup_auto_send() {
                     server_offset_total_minutes=$(( -server_offset_total_minutes ))
                 fi
 
-                read -rp "Введите желаемое время отправки по UTC+0 (например, 08:00). Вы можете указать несколько времен через пробел: " times
+                echo "Введите желаемое время отправки по UTC+0 (например, 08:00)"
+                read -rp "Вы можете указать несколько времен через пробел: " times
                 
                 valid_times_cron=()
                 local user_friendly_times_local=""
@@ -742,8 +730,8 @@ setup_auto_send() {
 
 restore_backup() {
     clear
+    echo "${GREEN}${BOLD}Восстановление из бэкапа${RESET}"
     echo ""
-    echo "=== Восстановление из бэкапа ==="
     print_message "WARN" "Восстановление полностью перезапишет базу данных ${BOLD}Remnawave${RESET}"
     echo -e "Поместите файл бэкапа (${BOLD}*.tar.gz${RESET}) в папку: ${BOLD}${BACKUP_DIR}${RESET}"
 
@@ -771,6 +759,7 @@ restore_backup() {
         echo "  $i) ${file##*/}"
         i=$((i+1))
     done
+    echo ""
     echo "  0) Вернуться в главное меню"
     echo ""
 
@@ -778,7 +767,7 @@ restore_backup() {
     local selected_index
 
     while true; do
-        read -rp "Введите номер файла для восстановления (0 для выхода): " user_choice
+        read -rp "${GREEN}[?]${RESET} Введите номер файла для восстановления (0 для выхода): " user_choice
         
         if [[ "$user_choice" == "0" ]]; then
             print_message "INFO" "Восстановление отменено пользователем. Возврат в главное меню."
@@ -852,7 +841,7 @@ restore_backup() {
 
     clear
     print_message "WARN" "${YELLOW}ПРОВЕРКА${RESET}"
-    echo -e "Убедитесь, что имя пользователя PostgreSQL в ${BOLD}.env${RESET} скрипта указано верно."
+    echo -e "Убедитесь, что имя пользователя PostgreSQL в ${BOLD}конфигурации скрипта${RESET} указано верно."
     echo "Это крайне важно для успешного восстановления!"
     echo "Вы проверили и подтверждаете, что настройки верны?"
     echo -e "Введите ${GREEN}Y${RESET}/${RED}N${RESET} для подтверждения:"
@@ -1012,7 +1001,6 @@ update_script() {
         return
     fi
 
-    # Загрузка только информации о версии с GitHub во временный файл
     print_message "INFO" "Получение информации о последней версии скрипта с GitHub..."
     local TEMP_REMOTE_VERSION_FILE=$(mktemp)
     
@@ -1023,9 +1011,8 @@ update_script() {
         return
     fi
 
-    # Извлекаем удаленную версию из временного файла
     REMOTE_VERSION=$(grep -m 1 "^VERSION=" "$TEMP_REMOTE_VERSION_FILE" | cut -d'"' -f2)
-    rm -f "$TEMP_REMOTE_VERSION_FILE" # Удаляем временный файл
+    rm -f "$TEMP_REMOTE_VERSION_FILE"
 
     if [[ -z "$REMOTE_VERSION" ]]; then
         print_message "ERROR" "Не удалось извлечь информацию о версии из удаленного скрипта. Возможно, формат переменной VERSION изменился или она отсутствует в первых 100 строках."
@@ -1131,7 +1118,7 @@ update_script() {
 }
 
 remove_script() {
-    print_message "WARN" "ВНИМАНИЕ! Будут удалены: "
+    print_message "WARN" "${YELLOW}ВНИМАНИЕ!${RESET} Будут удалены: "
     echo  " - Скрипт"
     echo  " - Каталог установки и все бэкапы"
     echo  " - Символическая ссылка (если существует)"
@@ -1184,16 +1171,16 @@ remove_script() {
 configure_upload_method() {
     while true; do
         clear
-        print_ascii_art
-        echo "=== Настроить способ отправки бэкапов ==="
+        echo -e "${GREEN}${BOLD}Настройка способа отправки бэкапов${RESET}"
         echo ""
         print_message "INFO" "Текущий способ: ${BOLD}${UPLOAD_METHOD^^}${RESET}"
         echo ""
-        echo "   1) Установить способ отправки: Telegram"
-        echo "   2) Установить способ отправки: Google Drive"
-        echo "   0) Вернуться в главное меню"
+        echo "   1. Установить способ отправки: Telegram"
+        echo "   2. Установить способ отправки: Google Drive"
         echo ""
-        read -rp "Выберите пункт: " choice
+        echo "   0. Вернуться в главное меню"
+        echo ""
+        read -rp "${GREEN}[?]${RESET} Выберите пункт: " choice
         echo ""
 
         case $choice in
@@ -1291,33 +1278,33 @@ configure_upload_method() {
 configure_settings() {
     while true; do
         clear
-        print_ascii_art
-        echo "     === Изменить конфигурацию ==="
+        echo -e "${GREEN}${BOLD}Изменение конфигурации скрипта${RESET}"
         echo ""
-        echo "   1) Изменить настройки Telegram"
-        echo "   2) Изменить настройки Google Drive"
-        echo "   3) Изменить имя пользователя PostgreSQL"
-        echo "   4) Изменить путь Remnawave"
-        echo "   0) Вернуться в главное меню"
+        echo "   1. Настройки Telegram"
+        echo "   2. Настройки Google Drive"
+        echo "   3. Имя пользователя PostgreSQL"
+        echo "   4. Путь Remnawave"
         echo ""
-        read -rp "Выберите пункт: " choice
+        echo "   0. Вернуться в главное меню"
+        echo ""
+        read -rp "${GREEN}[?]${RESET} Выберите пункт: " choice
         echo ""
 
         case $choice in
             1)
                 while true; do
                     clear
-                    print_ascii_art
-                    echo "=== Изменить настройки Telegram ==="
+                    echo -e "${GREEN}${BOLD}Настройки Telegram${RESET}"
                     echo ""
                     print_message "INFO" "Текущий API Token: ${BOLD}${BOT_TOKEN}${RESET}"
                     print_message "INFO" "Текущий Telegram ID: ${BOLD}${CHAT_ID}${RESET}"
                     echo ""
-                    echo "   1) Изменить API Token"
-                    echo "   2) Изменить Telegram ID"
-                    echo "   0) Назад"
+                    echo "   1. Изменить API Token"
+                    echo "   2. Изменить Telegram ID"
                     echo ""
-                    read -rp "Выберите пункт: " telegram_choice
+                    echo "   0. Назад"
+                    echo ""
+                    read -rp "${GREEN}[?]${RESET} Выберите пункт: " telegram_choice
                     echo ""
 
                     case $telegram_choice in
@@ -1345,21 +1332,21 @@ configure_settings() {
             2)
                 while true; do
                     clear
-                    print_ascii_art
-                    echo "=== Изменить настройки Google Drive ==="
+                    echo -e "${GREEN}${BOLD}Настройки Google Drive${RESET}"
                     echo ""
                     print_message "INFO" "Текущий Client ID: ${BOLD}${GD_CLIENT_ID:0:8}...${RESET}"
                     print_message "INFO" "Текущий Client Secret: ${BOLD}${GD_CLIENT_SECRET:0:8}...${RESET}"
                     print_message "INFO" "Текущий Refresh Token: ${BOLD}${GD_REFRESH_TOKEN:0:8}...${RESET}"
                     print_message "INFO" "Текущий Drive Folder ID: ${BOLD}${GD_FOLDER_ID:-Корневая папка}${RESET}"
                     echo ""
-                    echo "   1) Изменить Google Client ID"
-                    echo "   2) Изменить Google Client Secret"
-                    echo "   3) Изменить Google Refresh Token (потребуется повторная авторизация)"
-                    echo "   4) Изменить Google Drive Folder ID"
-                    echo "   0) Назад"
+                    echo "   1. Изменить Google Client ID"
+                    echo "   2. Изменить Google Client Secret"
+                    echo "   3. Изменить Google Refresh Token (потребуется повторная авторизация)"
+                    echo "   4. Изменить Google Drive Folder ID"
                     echo ""
-                    read -rp "Выберите пункт: " gd_choice
+                    echo "   0. Назад"
+                    echo ""
+                    read -rp "${GREEN}[?]${RESET} Выберите пункт: " gd_choice
                     echo ""
 
                     case $gd_choice in
@@ -1387,7 +1374,7 @@ configure_settings() {
                             print_message "INFO" "Откройте следующую ссылку в браузере, авторизуйтесь и скопируйте ${BOLD}код${RESET}:"
                             echo ""
                             local auth_url="https://accounts.google.com/o/oauth2/auth?client_id=${GD_CLIENT_ID}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline"
-                            print_message "INFO" "${CYAN}${auth_url}${RESET}"
+                            print_message "LINK" "${CYAN}${auth_url}${RESET}"
                             echo ""
                             read -rp "Введите код из браузера: " AUTH_CODE
                             
@@ -1433,8 +1420,7 @@ configure_settings() {
                 ;;
             3)
                 clear
-                print_ascii_art
-                echo "=== Изменить имя пользователя PostgreSQL ==="
+                echo -e "${GREEN}${BOLD}Имя пользователя PostgreSQL${RESET}"
                 echo ""
                 print_message "INFO" "Текущее имя пользователя PostgreSQL: ${BOLD}${DB_USER}${RESET}"
                 echo ""
@@ -1447,18 +1433,17 @@ configure_settings() {
                 ;;
             4)
                 clear
-                print_ascii_art
-                echo "=== Изменить путь Remnawave ==="
+                echo -e "${GREEN}${BOLD}Путь Remnawave${RESET}"
                 echo ""
                 print_message "INFO" "Текущий путь Remnawave: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
                 echo ""
                 print_message "ACTION" "Выберите новый путь для панели Remnawave:"
-                echo "   1) /opt/remnawave"
-                echo "   2) /root/remnawave"
+                echo "   1. /opt/remnawave"
+                echo "   2. /root/remnawave"
                 echo ""
                 local new_remnawave_path_choice
                 while true; do
-                    read -rp "   Выберите вариант (1 или 2): " new_remnawave_path_choice
+                    read -rp "   ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " new_remnawave_path_choice
                     case "$new_remnawave_path_choice" in
                         1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                         2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
@@ -1480,31 +1465,34 @@ configure_settings() {
 main_menu() {
     while true; do
         clear
-        print_ascii_art
-        echo "          === Главное меню ===          "
+        echo -e "${GREEN}${BOLD}REMNAWAVE BACKUP & RESTORE by distillium${RESET} "
+        echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION}${RESET}"
         echo ""
-        echo "   1) 💾 Создать бэкап вручную"
-        echo "   2) ⏰ Настройка автоматической отправки и уведомлений"
-        echo "   3) ♻️ Восстановление из бэкапа"
-        echo "   4) ⚙️ Настроить способ отправки"
-        echo "   5) ✏️ Изменить конфигурацию"
-        echo "   6) 🔄 Обновить скрипт"
-        echo "   7) 🗑️ Удалить скрипт"
-        echo "   8) ❌ Выход"
-        echo -e "   —  🚀 Быстрый запуск: ${BOLD}rw-backup${RESET} доступен из любой точки системы"
+        echo "   1. Создание бэкапа вручную"
+        echo "   2. Восстановление из бэкапа"
+        echo ""
+        echo "   3. Настройка автоматической отправки и уведомлений"
+        echo "   4. Настройка способа отправки"
+        echo "   5. Изменение конфигурации скрипта"
+        echo ""
+        echo "   6. Обновление скрипта"
+        echo "   7. Удаление скрипта"
+        echo ""
+        echo "   0. Выход"
+        echo -e "   —  Быстрый запуск: ${BOLD}${GREEN}rw-backup${RESET} доступен из любой точки системы"
         echo ""
 
-        read -rp "Выберите пункт: " choice
+        read -rp "${GREEN}[?]${RESET} Выберите пункт: " choice
         echo ""
         case $choice in
             1) create_backup ; read -rp "Нажмите Enter для продолжения..." ;;
-            2) setup_auto_send ;;
-            3) restore_backup ;;
+            2) restore_backup ;;
+            3) setup_auto_send ;;
             4) configure_upload_method ;;
             5) configure_settings ;;
             6) update_script ;;
             7) remove_script ;;
-            8) echo "Выход..."; exit 0 ;;
+            0) echo "Выход..."; exit 0 ;;
             *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
     done
