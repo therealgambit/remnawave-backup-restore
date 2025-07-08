@@ -326,6 +326,17 @@ escape_markdown_v2() {
         -e 's/!/\!/g'
 }
 
+get_remnawave_version() {
+    local version_output
+    version_output=$(docker exec -it remnawave sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json
+ 2>/dev/null)
+    if [[ -z "$version_output" ]]; then
+        echo "не определена"
+    else
+        echo "$version_output"
+    fi
+}
+
 send_telegram_message() {
     local message="$1"
     local parse_mode="${2:-MarkdownV2}"
@@ -451,16 +462,6 @@ send_google_drive_document() {
     else
         print_message "ERROR" "Ошибка при загрузке в Google Drive. Код: ${error_code:-Unknown}. Сообщение: ${error_message:-Unknown error}. Полный ответ API: ${response}"
         return 1
-    fi
-}
-
-get_remnawave_version() {
-    local version_output
-    version_output=$(docker exec remnawave awk -F'"' '/"version"/{print $4; exit}' /app/package.json 2>/dev/null)
-    if [[ -z "$version_output" ]]; then
-        echo "не определена"
-    else
-        echo "$version_output"
     fi
 }
 
