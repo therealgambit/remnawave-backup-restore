@@ -454,9 +454,21 @@ send_google_drive_document() {
     fi
 }
 
+get_remnawave_version() {
+    local version_output
+    version_output=$(docker exec remnawave awk -F'"' '/"version"/{print $4; exit}' /app/package.json 2>/dev/null)
+    if [[ -z "$version_output" ]]; then
+        echo "не определена"
+    else
+        echo "$version_output"
+    fi
+}
+
 create_backup() {
     print_message "INFO" "Начинаю процесс создания резервной копии..."
     echo ""
+
+    REMNAWAVE_VERSION=$(get_remnawave_version)
 
     TIMESTAMP=$(date +%Y-%m-%d"_"%H_%M_%S)
     BACKUP_FILE_DB="dump_${TIMESTAMP}.sql.gz"
@@ -544,7 +556,7 @@ create_backup() {
 
     print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
-    local caption_text=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n📅 Дата: '"${DATE}"
+    local caption_text=$'💾#backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n⚠️ Remnawave: '"${REMNAWAVE_VERSION}"$'\n📅 Дата: '"${DATE}"
 
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
         if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
