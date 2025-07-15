@@ -20,7 +20,7 @@ GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
-VERSION="1.0.2c"
+VERSION="1.0.2d"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -328,7 +328,7 @@ escape_markdown_v2() {
 
 get_remnawave_version() {
     local version_output
-    version_output=$(docker exec -it remnawave sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json
+    version_output=$(docker exec remnawave sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json
  2>/dev/null)
     if [[ -z "$version_output" ]]; then
         echo "не определена"
@@ -556,7 +556,7 @@ create_backup() {
 
     print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
-    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 Remnawave: v'"${REMNAWAVE_VERSION}"$'\n📅 Дата: '"${DATE}"
+    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"$'\n📅 *Дата:* '"${DATE}"
 
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
         if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
@@ -568,7 +568,7 @@ create_backup() {
         elif [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
             if send_google_drive_document "$BACKUP_DIR/$BACKUP_FILE_FINAL"; then
                 print_message "SUCCESS" "Бэкап успешно отправлен в Google Drive."
-                local tg_success_message=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан и отправлен в Google Drive*\n🌊 Remnawave: v'"${REMNAWAVE_VERSION}"$'\n📅 Дата: '"${DATE}"
+                local tg_success_message=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан и отправлен в Google Drive*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"$'\n📅 *Дата:* '"${DATE}"
                 if send_telegram_message "$tg_success_message"; then
                     print_message "SUCCESS" "Уведомление об успешной отправке на Google Drive отправлено в Telegram."
                 else
