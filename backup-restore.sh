@@ -20,7 +20,6 @@ GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
-REMNAWAVE_VERSION=$(get_remnawave_version)
 VERSION="1.0.2c"
 
 if [[ -t 0 ]]; then
@@ -470,6 +469,7 @@ create_backup() {
     print_message "INFO" "Начинаю процесс создания резервной копии..."
     echo ""
 
+    REMNAWAVE_VERSION=$(get_remnawave_version)
     TIMESTAMP=$(date +%Y-%m-%d"_"%H_%M_%S)
     BACKUP_FILE_DB="dump_${TIMESTAMP}.sql.gz"
     BACKUP_FILE_FINAL="remnawave_backup_${TIMESTAMP}.tar.gz"
