@@ -20,7 +20,8 @@ GD_REFRESH_TOKEN=""
 GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
-VERSION="1.0.2d"
+TG_MESSAGE_THREAD_ID=""
+VERSION="1.0.2e"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -126,6 +127,7 @@ GD_REFRESH_TOKEN="$GD_REFRESH_TOKEN"
 GD_FOLDER_ID="$GD_FOLDER_ID"
 CRON_TIMES="$CRON_TIMES"
 REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR"
+TG_MESSAGE_THREAD_ID="$TG_MESSAGE_THREAD_ID"
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
@@ -142,33 +144,41 @@ load_or_create_config() {
         DB_USER=${DB_USER:-postgres}
         CRON_TIMES=${CRON_TIMES:-}
         REMNALABS_ROOT_DIR=${REMNALABS_ROOT_DIR:-}
+        TG_MESSAGE_THREAD_ID=${TG_MESSAGE_THREAD_ID:-}
         
         local config_updated=false
 
-        if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" || -z "$DB_USER" ]]; then
+        if [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]]; then
             print_message "WARN" "В файле конфигурации отсутствуют необходимые переменные для Telegram."
             print_message "ACTION" "Пожалуйста, введите недостающие данные для Telegram (обязательно):"
             echo ""
             print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
-            [[ -z "$BOT_TOKEN" ]] && read -rp "   Введите API Token: " BOT_TOKEN
+            [[ -z "$BOT_TOKEN" ]] && read -rp "    Введите API Token: " BOT_TOKEN
             echo ""
-            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
-            [[ -z "$CHAT_ID" ]] && read -rp "   Введите свой Telegram ID: " CHAT_ID
+            print_message "INFO" "Введите Chat ID (для отправки в группу) или свой Telegram ID (для прямой отправки в бота)"
+            echo -e "       Chat ID/Telegram ID можно узнать у этого бота ${CYAN}@username_to_id_bot${RESET}"
+            [[ -z "$CHAT_ID" ]] && read -rp "    Введите ID: " CHAT_ID
             echo ""
-            [[ -z "$DB_USER" ]] && read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
-            DB_USER=${DB_USER:-postgres}
+            print_message "INFO" "Опционально: для отправки в определенный топик группы, введите ID топика (Message Thread ID)"
+            echo -e "       Оставьте пустым для общего потока или отправки напрямую в бота"
+            read -rp "    Введите Message Thread ID: " TG_MESSAGE_THREAD_ID
+            echo ""
             config_updated=true
-            echo ""
         fi
 
+        [[ -z "$DB_USER" ]] && read -rp "    Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
+        DB_USER=${DB_USER:-postgres}
+        config_updated=true
+        echo ""
+        
         if [[ -z "$REMNALABS_ROOT_DIR" ]]; then
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "   1. /opt/remnawave"
-            echo "   2. /root/remnawave"
+            echo "    1. /opt/remnawave"
+            echo "    2. /root/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "  ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "    ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
@@ -197,8 +207,8 @@ load_or_create_config() {
             local guide_url="https://telegra.ph/Nastrojka-Google-API-06-02"
                 print_message "LINK" "Изучите этот гайд: ${CYAN}${guide_url}${RESET}"
                 echo ""
-            [[ -z "$GD_CLIENT_ID" ]] && read -rp "   Введите Google Client ID: " GD_CLIENT_ID
-            [[ -z "$GD_CLIENT_SECRET" ]] && read -rp "   Введите Google Client Secret: " GD_CLIENT_SECRET
+            [[ -z "$GD_CLIENT_ID" ]] && read -rp "    Введите Google Client ID: " GD_CLIENT_ID
+            [[ -z "$GD_CLIENT_SECRET" ]] && read -rp "    Введите Google Client Secret: " GD_CLIENT_SECRET
             clear
             
             if [[ -z "$GD_REFRESH_TOKEN" ]]; then
@@ -208,7 +218,7 @@ load_or_create_config() {
                 local auth_url="https://accounts.google.com/o/oauth2/auth?client_id=${GD_CLIENT_ID}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/drive&response_type=code&access_type=offline"
                 print_message "INFO" "${CYAN}${auth_url}${RESET}"
                 echo ""
-                read -rp "   Введите код из браузера: " AUTH_CODE
+                read -rp "    Введите код из браузера: " AUTH_CODE
                 
                 print_message "INFO" "Получение Refresh Token..."
                 local token_response=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -228,15 +238,15 @@ load_or_create_config() {
                 fi
             fi
             echo
-                    echo "   📁 Чтобы указать папку Google Drive:"
-                    echo "   1. Создайте и откройте нужную папку в браузере."
-                    echo "   2. Посмотрите на ссылку в адресной строке,она выглядит так:"
+                    echo "    📁 Чтобы указать папку Google Drive:"
+                    echo "    1. Создайте и откройте нужную папку в браузере."
+                    echo "    2. Посмотрите на ссылку в адресной строке,она выглядит так:"
                     echo "      https://drive.google.com/drive/folders/1a2B3cD4eFmNOPqRstuVwxYz"
-                    echo "   3. Скопируйте часть после /folders/ — это и есть Folder ID:"
-                    echo "   4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
+                    echo "    3. Скопируйте часть после /folders/ — это и есть Folder ID:"
+                    echo "    4. Если оставить поле пустым — бекап будет отправлен в корневую папку Google Drive."
                     echo
 
-                    read -rp "   Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
+                    read -rp "    Введите Google Drive Folder ID (оставьте пустым для корневой папки): " GD_FOLDER_ID
             config_updated=true
             echo ""
         fi
@@ -270,22 +280,27 @@ load_or_create_config() {
             print_message "INFO" "Конфигурация не найдена, создаем новую..."
             echo ""
             print_message "INFO" "Создайте Telegram бота в ${CYAN}@BotFather${RESET} и получите API Token"
-            read -rp "   Введите API Token: " BOT_TOKEN
+            read -rp "    Введите API Token: " BOT_TOKEN
             echo ""
-            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
-            read -rp "   Введите свой Telegram ID: " CHAT_ID
+            print_message "INFO" "Введите Chat ID (для отправки в группу) или свой Telegram ID (для прямой отправки в бота)"
+            echo -e "       Chat ID/Telegram ID можно узнать у этого бота ${CYAN}@username_to_id_bot${RESET}"
+            read -rp "    Введите ID: " CHAT_ID
             echo ""
-            read -rp "   Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
+            print_message "INFO" "Опционально: для отправки в определенный топик группы, введите ID топика (Message Thread ID)"
+            echo -e "       Оставьте пустым для общего потока или отправки напрямую в бота"
+            read -rp "    Введите Message Thread ID: " TG_MESSAGE_THREAD_ID
+            echo ""
+            read -rp "    Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
             DB_USER=${DB_USER:-postgres}
             echo ""
 
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "   1. /opt/remnawave"
-            echo "   2. /root/remnawave"
+            echo "    1. /opt/remnawave"
+            echo "    2. /root/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "   ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "    ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
@@ -348,10 +363,18 @@ send_telegram_message() {
         return 1
     fi
 
+    local data_params=(
+        -d chat_id="$CHAT_ID"
+        -d text="$escaped_message"
+        -d parse_mode="$parse_mode"
+    )
+
+    if [[ -n "$TG_MESSAGE_THREAD_ID" ]]; then
+        data_params+=(-d message_thread_id="$TG_MESSAGE_THREAD_ID")
+    fi
+
     local http_code=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-        -d chat_id="$CHAT_ID" \
-        -d text="$escaped_message" \
-        -d parse_mode="$parse_mode" \
+        "${data_params[@]}" \
         -w "%{http_code}" -o /dev/null 2>&1)
 
     if [[ "$http_code" -eq 200 ]]; then
@@ -374,11 +397,19 @@ send_telegram_document() {
         return 1
     fi
 
+    local form_params=(
+        -F chat_id="$CHAT_ID"
+        -F document=@"$file_path"
+        -F parse_mode="$parse_mode"
+        -F caption="$escaped_caption"
+    )
+
+    if [[ -n "$TG_MESSAGE_THREAD_ID" ]]; then
+        form_params+=(-F message_thread_id="$TG_MESSAGE_THREAD_ID")
+    fi
+
     local api_response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
-        -F chat_id="$CHAT_ID" \
-        -F document=@"$file_path" \
-        -F parse_mode="$parse_mode" \
-        -F caption="$escaped_caption" \
+        "${form_params[@]}" \
         -w "%{http_code}" -o /dev/null 2>&1)
 
     local curl_status=$?
@@ -1309,10 +1340,12 @@ configure_settings() {
                     echo -e "${GREEN}${BOLD}Настройки Telegram${RESET}"
                     echo ""
                     print_message "INFO" "Текущий API Token: ${BOLD}${BOT_TOKEN}${RESET}"
-                    print_message "INFO" "Текущий Telegram ID: ${BOLD}${CHAT_ID}${RESET}"
+                    print_message "INFO" "Текущий ID: ${BOLD}${CHAT_ID}${RESET}"
+                    print_message "INFO" "Текущий Message Thread ID: ${BOLD}${TG_MESSAGE_THREAD_ID:-Не установлен}${RESET}"
                     echo ""
                     echo "   1. Изменить API Token"
-                    echo "   2. Изменить Telegram ID"
+                    echo "   2. Изменить ID"
+                    echo "   3. Изменить Message Thread ID (для топиков групп)"
                     echo ""
                     echo "   0. Назад"
                     echo ""
@@ -1328,11 +1361,20 @@ configure_settings() {
                             print_message "SUCCESS" "API Token успешно обновлен."
                             ;;
                         2)
-                            print_message "INFO" "Свой ID можно узнать у этого бота в Telegram ${CYAN}@userinfobot${RESET}"
-                            read -rp "   Введите новый Telegram ID: " NEW_CHAT_ID
+                            print_message "INFO" "Введите Chat ID (для отправки в группу) или свой Telegram ID (для прямой отправки в бота)"
+            echo -e "       Chat ID/Telegram ID можно узнать у этого бота ${CYAN}@username_to_id_bot${RESET}"
+                            read -rp "   Введите новый ID: " NEW_CHAT_ID
                             CHAT_ID="$NEW_CHAT_ID"
                             save_config
-                            print_message "SUCCESS" "Telegram ID успешно обновлен."
+                            print_message "SUCCESS" "ID успешно обновлен."
+                            ;;
+                        3)
+                            print_message "INFO" "Опционально: для отправки в определенный топик группы, введите ID топика (Message Thread ID)"
+            echo -e "       Оставьте пустым для общего потока или отправки напрямую в бота"
+                            read -rp "   Введите Message Thread ID: " NEW_TG_MESSAGE_THREAD_ID
+                            TG_MESSAGE_THREAD_ID="$NEW_TG_MESSAGE_THREAD_ID"
+                            save_config
+                            print_message "SUCCESS" "Message Thread ID успешно обновлен."
                             ;;
                         0) break ;;
                         *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
@@ -1341,6 +1383,7 @@ configure_settings() {
                     read -rp "Нажмите Enter для продолжения..."
                 done
                 ;;
+
             2)
                 while true; do
                     clear
