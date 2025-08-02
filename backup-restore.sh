@@ -175,6 +175,7 @@ load_or_create_config() {
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
             echo "    1. /opt/remnawave"
             echo "    2. /root/remnawave"
+            echo "    3. /opt/stacks/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
@@ -182,6 +183,7 @@ load_or_create_config() {
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
                     *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
                 esac
             done
@@ -297,6 +299,7 @@ load_or_create_config() {
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
             echo "    1. /opt/remnawave"
             echo "    2. /root/remnawave"
+            echo "    3. /opt/stacks/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
@@ -304,6 +307,7 @@ load_or_create_config() {
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
                     *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
                 esac
             done
@@ -1502,6 +1506,7 @@ configure_settings() {
                     case "$new_remnawave_path_choice" in
                         1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                         2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                        3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
                         *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
                     esac
                 done
