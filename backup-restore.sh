@@ -21,7 +21,7 @@ GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
-VERSION="1.0.3a"
+VERSION="1.0.2f"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
