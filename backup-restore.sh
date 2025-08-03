@@ -21,7 +21,7 @@ GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
-VERSION="1.0.2e"
+VERSION="1.0.3"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -175,14 +175,16 @@ load_or_create_config() {
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
             echo "    1. /opt/remnawave"
             echo "    2. /root/remnawave"
+            echo "    3. /opt/stacks/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "    ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "    ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                    *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                    *) print_message "ERROR" "Неверный ввод." ;;
                 esac
             done
             config_updated=true
@@ -297,14 +299,16 @@ load_or_create_config() {
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
             echo "    1. /opt/remnawave"
             echo "    2. /root/remnawave"
+            echo "    3. /opt/stacks/remnawave"
             echo ""
             local remnawave_path_choice
             while true; do
-                read -rp "    ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " remnawave_path_choice
+                read -rp "    ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
                 case "$remnawave_path_choice" in
                     1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                     2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                    *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                    *) print_message "ERROR" "Неверный ввод." ;;
                 esac
             done
             echo ""
@@ -1495,14 +1499,16 @@ configure_settings() {
                 print_message "ACTION" "Выберите новый путь для панели Remnawave:"
                 echo "   1. /opt/remnawave"
                 echo "   2. /root/remnawave"
+                echo "   3. /opt/stacks/remnawave"
                 echo ""
                 local new_remnawave_path_choice
                 while true; do
-                    read -rp "   ${GREEN}[?]${RESET} Выберите вариант (1 или 2): " new_remnawave_path_choice
+                    read -rp "   ${GREEN}[?]${RESET} Выберите вариант: " new_remnawave_path_choice
                     case "$new_remnawave_path_choice" in
                         1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
                         2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                        *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите 1 или 2." ;;
+                        3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                        *) print_message "ERROR" "Неверный ввод." ;;
                     esac
                 done
                 save_config
