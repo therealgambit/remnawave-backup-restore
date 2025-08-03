@@ -21,7 +21,7 @@ GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
-VERSION="1.0.3"
+VERSION="1.0.3a"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -1049,8 +1049,9 @@ update_script() {
     fi
 
     print_message "INFO" "Получение информации о последней версии скрипта с GitHub..."
-    local TEMP_REMOTE_VERSION_FILE=$(mktemp)
-    
+    local TEMP_REMOTE_VERSION_FILE
+    TEMP_REMOTE_VERSION_FILE=$(mktemp)
+
     if ! curl -fsSL "$SCRIPT_REPO_URL" 2>/dev/null | head -n 100 > "$TEMP_REMOTE_VERSION_FILE"; then
         print_message "ERROR" "Не удалось загрузить информацию о новой версии с GitHub. Проверьте URL или сетевое соединение."
         rm -f "$TEMP_REMOTE_VERSION_FILE"
@@ -1060,12 +1061,6 @@ update_script() {
 
     REMOTE_VERSION=$(grep -m 1 "^VERSION=" "$TEMP_REMOTE_VERSION_FILE" | cut -d'"' -f2)
     rm -f "$TEMP_REMOTE_VERSION_FILE"
-
-    if [[ -z "$REMOTE_VERSION" ]]; then
-        print_message "ERROR" "Не удалось извлечь информацию о версии из удаленного скрипта. Возможно, формат переменной VERSION изменился или она отсутствует в первых 100 строках."
-        read -rp "Нажмите Enter для продолжения..."
-        return
-    fi
 
     if [[ -z "$REMOTE_VERSION" ]]; then
         print_message "ERROR" "Не удалось извлечь информацию о версии из удаленного скрипта. Возможно, формат переменной VERSION изменился."
@@ -1080,32 +1075,33 @@ update_script() {
     compare_versions() {
         local v1="$1"
         local v2="$2"
-        local v1_num=$(echo "$v1" | sed 's/[^0-9.]*//g')
-        local v1_char=$(echo "$v1" | sed 's/[0-9.]*//g')
-        local v2_num=$(echo "$v2" | sed 's/[^0-9.]*//g')
-        local v2_char=$(echo "$v2" | sed 's/[0-9.]*//g')
 
-        if printf '%s\n' "$v1_num" "$v2_num" | sort -V | head -n 1 | grep -q "$v2_num"; then
-            if [[ "$v1_num" == "$v2_num" ]]; then
-                if [[ "$v1_char" < "$v2_char" ]]; then
-                    return 1
-                else
-                    return 0
-                fi
+        local v1_num="${v1//[^0-9.]/}"
+        local v2_num="${v2//[^0-9.]/}"
+
+        local v1_sfx="${v1//$v1_num/}"
+        local v2_sfx="${v2//$v2_num/}"
+
+        if [[ "$v1_num" == "$v2_num" ]]; then
+            if [[ -z "$v1_sfx" && -n "$v2_sfx" ]]; then
+                return 0
+            elif [[ -n "$v1_sfx" && -z "$v2_sfx" ]]; then
+                return 1
+            elif [[ "$v1_sfx" < "$v2_sfx" ]]; then
+                return 0
             else
                 return 1
             fi
         else
-            return 0
+            if printf '%s\n' "$v1_num" "$v2_num" | sort -V | head -n1 | grep -qx "$v1_num"; then
+                return 0
+            else
+                return 1
+            fi
         fi
     }
 
     if compare_versions "$VERSION" "$REMOTE_VERSION"; then
-        print_message "INFO" "У вас установлена актуальная версия скрипта. Обновление не требуется."
-        rm -f "$TEMP_SCRIPT_PATH"
-        read -rp "Нажмите Enter для продолжения..."
-        return
-    else
         print_message "ACTION" "Доступно обновление до версии ${BOLD}${REMOTE_VERSION}${RESET}."
         echo -e -n "Хотите обновить скрипт? Введите ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: "
         read -r confirm_update
@@ -1116,6 +1112,10 @@ update_script() {
             read -rp "Нажмите Enter для продолжения..."
             return
         fi
+    else
+        print_message "INFO" "У вас установлена актуальная версия скрипта. Обновление не требуется."
+        read -rp "Нажмите Enter для продолжения..."
+        return
     fi
 
     local TEMP_SCRIPT_PATH="${INSTALL_DIR}/backup-restore.sh.tmp"
@@ -1136,7 +1136,7 @@ update_script() {
     print_message "INFO" "Удаление старых резервных копий скрипта..."
     find "$(dirname "$SCRIPT_PATH")" -maxdepth 1 -name "${SCRIPT_NAME}.bak.*" -type f -delete
     echo ""
-    
+
     local BACKUP_PATH_SCRIPT="${SCRIPT_PATH}.bak.$(date +%s)"
     print_message "INFO" "Создание резервной копии текущего скрипта..."
     cp "$SCRIPT_PATH" "$BACKUP_PATH_SCRIPT" || {
@@ -1155,6 +1155,7 @@ update_script() {
         read -rp "Нажмите Enter для продолжения..."
         return
     }
+
     chmod +x "$SCRIPT_PATH"
     print_message "SUCCESS" "Скрипт успешно обновлен до версии ${BOLD}${REMOTE_VERSION}${RESET}."
     echo ""
