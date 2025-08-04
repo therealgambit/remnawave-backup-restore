@@ -21,7 +21,7 @@ GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
-VERSION="1.0.2f"
+VERSION="1.0.3"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -723,7 +723,9 @@ setup_auto_send() {
                 
                 local temp_crontab_file=$(mktemp)
 
-                crontab -l 2>/dev/null > "$temp_crontab_file"
+                if ! crontab -l > "$temp_crontab_file" 2>/dev/null; then
+                    touch "$temp_crontab_file"
+                fi
 
                 if ! grep -q "^SHELL=" "$temp_crontab_file"; then
                     echo "SHELL=/bin/bash" | cat - "$temp_crontab_file" > "$temp_crontab_file.tmp"
