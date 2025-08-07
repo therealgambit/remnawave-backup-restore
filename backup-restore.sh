@@ -21,7 +21,8 @@ GD_FOLDER_ID=""
 UPLOAD_METHOD="telegram"
 CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
-VERSION="1.0.3"
+UPDATE_AVAILABLE=false
+VERSION="1.1.0"
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -166,7 +167,7 @@ load_or_create_config() {
             config_updated=true
         fi
 
-        [[ -z "$DB_USER" ]] && read -rp "    Введите имя пользователя PostgreSQL (по умолчанию postgres): " DB_USER
+        [[ -z "$DB_USER" ]] && read -rp "    Введите имя пользователя вашей БД (по умолчанию postgres): " DB_USER
         DB_USER=${DB_USER:-postgres}
         config_updated=true
         echo ""
@@ -633,6 +634,21 @@ create_backup() {
     find "$BACKUP_DIR" -maxdepth 1 -name "remnawave_backup_*.tar.gz" -mtime +$RETAIN_BACKUPS_DAYS -delete
     print_message "SUCCESS" "Политика хранения применена. Старые бэкапы удалены."
     echo ""
+    
+    {
+        check_update_status >/dev/null 2>&1
+        if [[ "$UPDATE_AVAILABLE" == true ]]; then
+            local CURRENT_VERSION="$VERSION"
+            local REMOTE_VERSION_LATEST
+
+            REMOTE_VERSION_LATEST=$(curl -fsSL "$SCRIPT_REPO_URL" 2>/dev/null | grep -m 1 "^VERSION=" | cut -d'"' -f2)
+
+            if [[ -n "$REMOTE_VERSION_LATEST" ]]; then
+                local update_msg=$'⚠️ *Доступно обновление скрипта*\n🔄 *Текущая версия:* '"${CURRENT_VERSION}"$'\n🆕 *Актуальная версия:* '"${REMOTE_VERSION_LATEST}"$'\n\n📥 Обновите через пункт *«Обновление скрипта»* в главном меню'
+                send_telegram_message "$update_msg" >/dev/null 2>&1
+            fi
+        fi
+    } &
 }
 
 setup_auto_send() {
@@ -776,32 +792,31 @@ setup_auto_send() {
     done
     echo ""
 }
-
+    
 restore_backup() {
     clear
     echo "${GREEN}${BOLD}Восстановление из бэкапа${RESET}"
     echo ""
-    print_message "WARN" "Восстановление полностью перезапишет базу данных ${BOLD}Remnawave${RESET}"
-    echo -e "Поместите файл бэкапа (${BOLD}*.tar.gz${RESET}) в папку: ${BOLD}${BACKUP_DIR}${RESET}"
+    print_message "INFO" "Поместите файл бэкапа в папку: ${BOLD}${BACKUP_DIR}${RESET}"
 
     ENV_NODE_RESTORE_PATH="$REMNALABS_ROOT_DIR/$ENV_NODE_FILE"
     ENV_RESTORE_PATH="$REMNALABS_ROOT_DIR/$ENV_FILE"
 
     if ! compgen -G "$BACKUP_DIR/remnawave_backup_*.tar.gz" > /dev/null; then
         print_message "ERROR" "Ошибка: Не найдено файлов бэкапов в ${BOLD}${BACKUP_DIR}${RESET}. Пожалуйста, поместите файл бэкапа в этот каталог."
-        read -rp "Нажмите Enter для продолжения..."
-        return
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
     fi
 
     readarray -t SORTED_BACKUP_FILES < <(find "$BACKUP_DIR" -maxdepth 1 -name "remnawave_backup_*.tar.gz" -printf "%T@ %p\n" | sort -nr | cut -d' ' -f2-)
 
     if [ ${#SORTED_BACKUP_FILES[@]} -eq 0 ]; then
         print_message "ERROR" "Ошибка: Не найдено файлов бэкапов в ${BOLD}${BACKUP_DIR}${RESET}."
-        read -rp "Нажмите Enter для продолжения..."
-        return
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
     fi
 
-        echo ""
+    echo ""
     echo "Выберите файл для восстановления:"
     local i=1
     for file in "${SORTED_BACKUP_FILES[@]}"; do
@@ -819,7 +834,8 @@ restore_backup() {
         read -rp "${GREEN}[?]${RESET} Введите номер файла для восстановления (0 для выхода): " user_choice
         
         if [[ "$user_choice" == "0" ]]; then
-            print_message "INFO" "Восстановление отменено пользователем. Возврат в главное меню."
+            print_message "INFO" "Восстановление отменено пользователем."
+            read -rp "Нажмите Enter для возврата в меню..."
             return
         fi
 
@@ -838,15 +854,16 @@ restore_backup() {
         fi
     done
 
-    print_message "WARN" "Вы уверены? Это удалит текущие данные. Введите ${GREEN}Y${RESET}/${RED}N${RESET} для подтверждения: "
-    read -r confirm_restore
     echo ""
-
-    if [[ "${confirm_restore,,}" != "y" ]]; then
-        print_message "WARN" "Восстановление отменено пользователем."
+    print_message "WARN" "Операция восстановления полностью перезапишет текущую БД"
+    print_message "INFO" "В конфигурации скрипта вы указали имя пользователя БД: ${BOLD}${GREEN}${DB_USER}${RESET}"
+    read -rp "$(echo -e "${GREEN}[?]${RESET} Введите ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET} для продолжения: ")" db_user_confirm
+    if [[ "$db_user_confirm" != "y" ]]; then
+        print_message "INFO" "Операция восстановления отменена пользователем."
+        read -rp "Нажмите Enter для возврата в меню..."
         return
     fi
-    
+
     clear
     print_message "INFO" "Начало процесса полного сброса и восстановления базы данных..."
     echo ""
@@ -854,17 +871,19 @@ restore_backup() {
     print_message "INFO" "Остановка контейнеров и удаление тома базы данных..."
     if ! cd "$REMNALABS_ROOT_DIR"; then
         print_message "ERROR" "Ошибка: Не удалось перейти в каталог ${BOLD}${REMNALABS_ROOT_DIR}${RESET}. Убедитесь, что файл ${BOLD}docker-compose.yml${RESET} находится там."
-        return
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
     fi
 
     docker compose down || {
-        print_message "WARN" "Предупреждение: Не удалось корректно остановить сервисы. Возможно, они уже остановлены."
+        print_message "WARN" "Не удалось корректно остановить сервисы. Возможно, они уже остановлены."
     }
-
+    
     if docker volume ls -q | grep -q "remnawave-db-data"; then
         if ! docker volume rm remnawave-db-data; then
-            echo -e "${RED}❌ Критическая ошибка: Не удалось удалить том ${BOLD}'remnawave-db-data'${RESET}. Восстановление невозможно. Проверьте права или занятость тома.${RESET}"
-            return
+            echo -e "${RED}Критическая ошибка: Не удалось удалить том ${BOLD}remnawave-db-data${RESET}. Восстановление невозможно. Проверьте права или занятость тома.${RESET}"
+            read -rp "Нажмите Enter для возврата в меню..."
+            return 1
         fi
         print_message "SUCCESS" "Том ${BOLD}remnawave-db-data${RESET} успешно удален."
     else
@@ -872,173 +891,116 @@ restore_backup() {
     fi
     echo ""
 
-    print_message "INFO" "Запуск контейнера ${BOLD}remnawave-db${RESET} для инициализации..."
-    if ! docker compose up -d remnawave-db; then
-        echo -e "${RED}❌ Критическая ошибка: Не удалось запустить контейнер ${BOLD}'remnawave-db'${RESET}. Восстановление невозможно.${RESET}"
-        return
-    fi
-    print_message "INFO" "Ожидание запуска контейнера ${BOLD}remnawave-db${RESET}..."
-    sleep 10
-    echo ""
-
-    if ! docker container inspect -f '{{.State.Running}}' remnawave-db 2>/dev/null | grep -q "true"; then
-        echo -e "${RED}❌ Критическая ошибка: Контейнер ${BOLD}'remnawave-db'${RESET} все еще не запущен после попытки старта. Восстановление невозможно.${RESET}"
-        return
-    fi
-    print_message "SUCCESS" "Контейнер ${BOLD}remnawave-db${RESET} успешно запущен."
-    echo ""
-
-    clear
-    print_message "WARN" "${YELLOW}ПРОВЕРКА${RESET}"
-    echo -e "Убедитесь, что имя пользователя PostgreSQL в ${BOLD}конфигурации скрипта${RESET} указано верно."
-    echo "Это крайне важно для успешного восстановления!"
-    echo "Вы проверили и подтверждаете, что настройки верны?"
-    echo -e "Введите ${GREEN}Y${RESET}/${RED}N${RESET} для подтверждения:"
-    read -r confirm_db_settings
-    echo ""
-
-    if [[ "${confirm_db_settings,,}" != "y" ]]; then
-        print_message "WARN" "Восстановление отменено пользователем."
-        return
-    fi
-
-    if ! docker exec -i remnawave-db psql -U "$DB_USER" -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
-        echo -e "${RED}❌ Ошибка: Не удалось подключиться к базе данных ${BOLD}'postgres'${RESET} в контейнере ${BOLD}'remnawave-db'${RESET} с пользователем '${BOLD}${DB_USER}${RESET}'.${RESET}"
-        echo "  Проверьте имя пользователя БД в ${BOLD}${CONFIG_FILE}${RESET} и доступность контейнера."
-        return
-    fi
-    print_message "SUCCESS" "Успешное подключение к базе данных ${BOLD}postgres${RESET} в контейнере ${BOLD}remnawave-db${RESET}."
-    echo ""
-
-
     print_message "INFO" "Распаковка архива бэкапа..."
     local temp_restore_dir="$BACKUP_DIR/restore_temp_$$"
     mkdir -p "$temp_restore_dir"
+
     if ! tar -xzf "$SELECTED_BACKUP" -C "$temp_restore_dir"; then
         STATUS=$?
-        echo -e "${RED}❌ Ошибка при распаковке архива ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}$STATUS${RESET}. Возможно, архив поврежден.${RESET}"
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка при распаковке архива: ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; fi
-        rm -rf "$temp_restore_dir"
-        exit $STATUS
-    fi
+        echo -e "${RED}❌ Ошибка при распаковке архива ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}$STATUS${RESET}.${RESET}"
+        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+            send_telegram_message "❌ Ошибка при распаковке архива: ${BOLD}${SELECTED_BACKUP##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"
+        fi
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+            read -rp "Нажмите Enter для возврата в меню..."
+            return 1
+        fi
     print_message "SUCCESS" "Архив успешно распакован во временную директорию."
     echo ""
 
     if [ -f "$temp_restore_dir/$ENV_NODE_FILE" ]; then
-        print_message "INFO" "  Обнаружен файл ${BOLD}${ENV_NODE_FILE}${RESET} в архиве. Перемещаем его в ${BOLD}${ENV_NODE_RESTORE_PATH}${RESET}."
+        print_message "INFO" "Обнаружен файл ${BOLD}${ENV_NODE_FILE}${RESET}. Перемещаем его в ${BOLD}${ENV_NODE_RESTORE_PATH}${RESET}."
         mv "$temp_restore_dir/$ENV_NODE_FILE" "$ENV_NODE_RESTORE_PATH" || {
-            echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_NODE_FILE}${RESET}. Проверьте права доступа.${RESET}"
-            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_NODE_FILE}${RESET} при восстановлении." "None"; fi
-            rm -rf "$temp_restore_dir"
-            exit 1;
+            echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_NODE_FILE}${RESET}.${RESET}"
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+                send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_NODE_FILE}${RESET} при восстановлении." "None"
+            fi
+            [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+            read -rp "Нажмите Enter для возврата в меню..."
+            return 1
         }
-        print_message "SUCCESS" "  Файл ${BOLD}${ENV_NODE_FILE}${RESET} успешно перемещен."
+        print_message "SUCCESS" "Файл ${BOLD}${ENV_NODE_FILE}${RESET} успешно перемещен."
     else
-        print_message "WARN" "  Внимание: Файл ${BOLD}${ENV_NODE_FILE}${RESET} не найден в архиве. Продолжаем без него."
+        print_message "WARN" "Внимание: Файл ${BOLD}${ENV_NODE_FILE}${RESET} не найден в архиве. Продолжаем без него."
     fi
 
     if [ -f "$temp_restore_dir/$ENV_FILE" ]; then
-        print_message "INFO" "  Обнаружен файл ${BOLD}${ENV_FILE}${RESET} в архиве. Перемещаем его в ${BOLD}${ENV_RESTORE_PATH}${RESET}."
+        print_message "INFO" "Обнаружен файл ${BOLD}${ENV_FILE}${RESET}. Перемещаем его в ${BOLD}${ENV_RESTORE_PATH}${RESET}."
         mv "$temp_restore_dir/$ENV_FILE" "$ENV_RESTORE_PATH" || {
-            echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_FILE}${RESET}. Проверьте права доступа.${RESET}"
-            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_FILE}${RESET} при восстановлении." "None"; fi
-            rm -rf "$temp_restore_dir"
-            exit 1;
+            echo -e "${RED}❌ Ошибка при перемещении ${BOLD}${ENV_FILE}${RESET}.${RESET}"
+            if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
+                send_telegram_message "❌ Ошибка: Не удалось переместить ${BOLD}${ENV_FILE}${RESET} при восстановлении." "None"
+            fi
+            [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+            read -rp "Нажмите Enter для возврата в меню..."
+            return 1
         }
-        print_message "SUCCESS" "  Файл ${BOLD}${ENV_FILE}${RESET} успешно перемещен."
+        print_message "SUCCESS" "Файл ${BOLD}${ENV_FILE}${RESET} успешно перемещен."
     else
-        print_message "WARN" "  Внимание: Файл ${BOLD}${ENV_FILE}${RESET} не найден в архиве. Продолжаем без него."
+        print_message "WARN" "Внимание: Файл ${BOLD}${ENV_FILE}${RESET} не найден в архиве. Продолжаем без него."
     fi
     echo ""
 
+    print_message "INFO" "Запуск контейнера с базой данных, ожидайте..."
+    docker compose rm -f remnawave-db > /dev/null 2>&1
+    docker compose up -d remnawave-db
+    print_message "INFO" "Ожидание готовности базы данных..."
+    until [ "$(docker inspect --format='{{.State.Health.Status}}' remnawave-db)" == "healthy" ]; do
+        sleep 2
+        echo -n "."
+    done
+    echo ""
+    print_message "SUCCESS" "База данных готова."
+    echo ""
+    print_message "INFO" "Восстановление базы данных из дампа..."
+    local DUMP_FILE_GZ=$(find "$temp_restore_dir" -name "dump_*.sql.gz" | head -n 1)
 
-    DUMP_FILE_GZ=$(find "$temp_restore_dir" -name "dump_*.sql.gz" | sort | tail -n 1)
-
-    if [ ! -f "$DUMP_FILE_GZ" ]; then
-        echo -e "${RED}❌ Ошибка: Не найден файл дампа (${BOLD}*.sql.gz${RESET}) после распаковки. Архив, возможно, поврежден или некорректен.${RESET}"
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Не найден файл дампа после распаковки из ${BOLD}${SELECTED_BACKUP##*/}${RESET}" "None"; fi
-        rm -rf "$temp_restore_dir"
-        exit 1
+    if [[ -z "$DUMP_FILE_GZ" ]]; then
+        print_message "ERROR" "Файл дампа не найден в архиве. Восстановление невозможно."
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
     fi
 
-    print_message "INFO" "Распаковка SQL-дампа: ${BOLD}${DUMP_FILE_GZ}${RESET}..."
+    local DUMP_FILE="${DUMP_FILE_GZ%.gz}"
     if ! gunzip "$DUMP_FILE_GZ"; then
-        STATUS=$?
-        echo -e "${RED}❌ Ошибка при распаковке SQL-дампа. Код выхода: ${BOLD}$STATUS${RESET}. Возможно, файл поврежден.${RESET}"
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка при распаковке SQL-дампа: ${BOLD}${DUMP_FILE_GZ##*/}${RESET}. Код выхода: ${BOLD}${STATUS}${RESET}" "None"; fi
-        rm -rf "$temp_restore_dir"
-        exit $STATUS
+        print_message "ERROR" "Не удалось распаковать дамп SQL: ${DUMP_FILE_GZ}"
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
     fi
-    print_message "SUCCESS" "SQL-дамп успешно распакован."
+
+    if ! docker exec -i remnawave-db psql -q -U postgres -d postgres > /dev/null 2> "$temp_restore_dir/restore_errors.log" < "$DUMP_FILE"; then
+        print_message "ERROR" "Ошибка при восстановлении дампа базы данных."
+
+        echo ""
+        print_message "WARN" "${YELLOW}Лог ошибок восстановления:${RESET}"
+        cat "$temp_restore_dir/restore_errors.log"
+
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
+
+    print_message "SUCCESS" "База данных успешно восстановлена."
     echo ""
 
-    SQL_FILE="${DUMP_FILE_GZ%.gz}"
+    print_message "INFO" "Удаление временных файлов восстановления..."
+    [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+    echo ""
 
-    if [ ! -f "$SQL_FILE" ]; then
-        echo -e "${RED}❌ Ошибка: Распакованный SQL-файл не найден. Это указывает на проблему с распаковкой.${RESET}"
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "❌ Ошибка: Распакованный SQL-файл не найден." "None"; fi
-        rm -rf "$temp_restore_dir"
-        exit 1
-    fi
+    print_message "INFO" "Запуск всех контейнеров..."
+    docker compose up -d
+    echo ""
 
-    local RESTORE_LOG_FILE="/var/log/rw-restore.log"
+    print_message "SUCCESS" "Восстановление завершено. Все контейнеры запущены."
 
-    print_message "INFO" "Восстановление базы данных из файла: ${BOLD}${SQL_FILE}${RESET}..."
+    REMNAWAVE_VERSION=$(get_remnawave_version)
+    local restore_msg=$'💾 #restore_success\n➖➖➖➖➖➖➖➖➖\n✅ *Восстановление БД завершено*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"
+    send_telegram_message "$restore_msg" >/dev/null 2>&1
     
-    : > "$RESTORE_LOG_FILE"
-
-    if cat "$SQL_FILE" | docker exec -i "remnawave-db" psql -q -U "$DB_USER" > /dev/null 2>>"$RESTORE_LOG_FILE"; then
-        print_message "SUCCESS" "Импорт базы данных успешно завершен."
-        local restore_success_prefix="✅ Восстановление Remnawave DB успешно завершено из файла: "
-        local restored_filename="${SELECTED_BACKUP##*/}"
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "${restore_success_prefix}${restored_filename}"; fi
-    else
-        STATUS=$?
-        local error_details=""
-        if [[ -s "$RESTORE_LOG_FILE" ]]; then
-            error_details=$(cat "$RESTORE_LOG_FILE")
-            print_message "ERROR" "Ошибка при импорте базы данных. Код выхода: ${BOLD}$STATUS${RESET}."
-            print_message "ERROR" "Подробности ошибки (см. ${BOLD}$RESTORE_LOG_FILE${RESET}):"
-            echo "$error_details"
-        else
-            print_message "ERROR" "Ошибка при импорте базы данных. Код выхода: ${BOLD}$STATUS${RESET}. Деталей ошибки нет в логе ${BOLD}$RESTORE_LOG_FILE${RESET}."
-        fi
-        
-        local restore_error_prefix="❌ Ошибка при импорте Remnawave DB из файла: "
-        local restored_filename_error="${SELECTED_BACKUP##*/}"
-        local error_suffix=". Код выхода: ${BOLD}${STATUS}${RESET}."
-        
-        if [[ -n "$error_details" ]]; then
-            error_suffix+="\nПодробности: $error_details"
-        fi
-
-        if [[ "$UPLOAD_METHOD" == "telegram" ]]; then send_telegram_message "${restore_error_prefix}${restored_filename_error}${error_suffix}"; fi
-        
-        print_message "ERROR" "ОШИБКА: Восстановление завершилось с ошибкой. SQL-файл не удалён: ${BOLD}${SQL_FILE}${RESET} (во временном каталоге ${BOLD}${temp_restore_dir}${RESET})."
-        
-        return
-    fi
-
-    echo ""
-
-    print_message "INFO" "Очистка временных файлов восстановления..."
-    rm -rf "$temp_restore_dir"
-    print_message "SUCCESS" "Временные файлы восстановления успешно удалены."
-    echo ""
-
-    print_message "INFO" "Перезапуск всех сервисов ${BOLD}Remnawave${RESET} и вывод логов..."
-    if ! docker compose down; then
-        print_message "WARN" "Предупреждение: Не удалось остановить сервисы Docker Compose перед полным запуском. Возможно, некоторые уже остановлены."
-    fi
-
-    if ! docker compose up -d; then
-        echo -e "${RED}❌ Критическая ошибка: Не удалось запустить все сервисы Docker Compose после восстановления. Проверьте файлы compose.${RESET}"
-        return
-    else
-        print_message "SUCCESS" "Все сервисы ${BOLD}Remnawave${RESET} успешно запущены."
-    fi
-    echo ""
     read -rp "Нажмите Enter для продолжения..."
+    return
 }
 
 update_script() {
@@ -1159,7 +1121,7 @@ update_script() {
     }
 
     chmod +x "$SCRIPT_PATH"
-    print_message "SUCCESS" "Скрипт успешно обновлен до версии ${BOLD}${REMOTE_VERSION}${RESET}."
+    print_message "SUCCESS" "Скрипт успешно обновлен до версии ${BOLD}${GREEN}${REMOTE_VERSION}${RESET}."
     echo ""
     print_message "INFO" "Для применения изменений скрипт будет перезапущен..."
     read -rp "Нажмите Enter для перезапуска."
@@ -1526,11 +1488,71 @@ configure_settings() {
     done
 }
 
+check_update_status() {
+    local TEMP_REMOTE_VERSION_FILE
+    TEMP_REMOTE_VERSION_FILE=$(mktemp)
+
+    if ! curl -fsSL "$SCRIPT_REPO_URL" 2>/dev/null | head -n 100 > "$TEMP_REMOTE_VERSION_FILE"; then
+        UPDATE_AVAILABLE=false
+        rm -f "$TEMP_REMOTE_VERSION_FILE"
+        return
+    fi
+
+    local REMOTE_VERSION
+    REMOTE_VERSION=$(grep -m 1 "^VERSION=" "$TEMP_REMOTE_VERSION_FILE" | cut -d'"' -f2)
+    rm -f "$TEMP_REMOTE_VERSION_FILE"
+
+    if [[ -z "$REMOTE_VERSION" ]]; then
+        UPDATE_AVAILABLE=false
+        return
+    fi
+
+    compare_versions_for_check() {
+        local v1="$1"
+        local v2="$2"
+
+        local v1_num="${v1//[^0-9.]/}"
+        local v2_num="${v2//[^0-9.]/}"
+
+        local v1_sfx="${v1//$v1_num/}"
+        local v2_sfx="${v2//$v2_num/}"
+
+        if [[ "$v1_num" == "$v2_num" ]]; then
+            if [[ -z "$v1_sfx" && -n "$v2_sfx" ]]; then
+                return 0
+            elif [[ -n "$v1_sfx" && -z "$v2_sfx" ]]; then
+                return 1
+            elif [[ "$v1_sfx" < "$v2_sfx" ]]; then
+                return 0
+            else
+                return 1
+            fi
+        else
+            if printf '%s\n' "$v1_num" "$v2_num" | sort -V | head -n1 | grep -qx "$v1_num"; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    }
+
+    if compare_versions_for_check "$VERSION" "$REMOTE_VERSION"; then
+        UPDATE_AVAILABLE=true
+    else
+        UPDATE_AVAILABLE=false
+    fi
+}
+
 main_menu() {
     while true; do
+        check_update_status
         clear
         echo -e "${GREEN}${BOLD}REMNAWAVE BACKUP & RESTORE by distillium${RESET} "
-        echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION}${RESET}"
+        if [[ "$UPDATE_AVAILABLE" == true ]]; then
+            echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION} ${YELLOW}(доступно обновление)${RESET}"
+        else
+            echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION}${RESET}"
+        fi
         echo ""
         echo "   1. Создание бэкапа вручную"
         echo "   2. Восстановление из бэкапа"
