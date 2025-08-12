@@ -1276,7 +1276,7 @@ restore_backup() {
     print_message "SUCCESS" "База данных успешно восстановлена."
     echo ""
     
-    restore_bot_from_backup "$temp_restore_dir"
+    restore_bot_backup "$temp_restore_dir"
     
     print_message "INFO" "Удаление временных файлов восстановления..."
     [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
