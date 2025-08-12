@@ -402,21 +402,49 @@ detect_nodejs_bots() {
 }
 
 # Bot detection and selection function
+# Функция обнаружения и выбора бота (с отладкой)
 detect_and_select_bot() {
     local bots_found=()
     
     print_message "INFO" "Поиск Telegram ботов в системе..."
+    echo ""
     
+    print_message "INFO" "Поиск Python ботов..."
     while IFS='|' read -r lang dir file; do
-        [[ -n "$lang" ]] && bots_found+=("$lang|$dir|$file")
-    done < <(
-        detect_python_bots
-        detect_golang_bots  
-        detect_nodejs_bots
-    )
+        if [[ -n "$lang" ]]; then
+            print_message "SUCCESS" "Найден $lang бот: $dir"
+            bots_found+=("$lang|$dir|$file")
+        fi
+    done < <(detect_python_bots)
+    
+    print_message "INFO" "Поиск Golang ботов..."
+    while IFS='|' read -r lang dir file; do
+        if [[ -n "$lang" ]]; then
+            print_message "SUCCESS" "Найден $lang бот: $dir"
+            bots_found+=("$lang|$dir|$file")
+        fi
+    done < <(detect_golang_bots)
+    
+    print_message "INFO" "Поиск Node.js ботов..."
+    while IFS='|' read -r lang dir file; do
+        if [[ -n "$lang" ]]; then
+            print_message "SUCCESS" "Найден $lang бот: $dir"
+            bots_found+=("$lang|$dir|$file")
+        fi
+    done < <(detect_nodejs_bots)
+    
+    echo ""
+    print_message "INFO" "Всего найдено ботов: ${#bots_found[@]}"
     
     if [[ ${#bots_found[@]} -eq 0 ]]; then
         print_message "WARN" "Автоматически ботов не найдено. Переходим к ручной настройке."
+        echo ""
+        print_message "INFO" "Возможные причины:"
+        echo "  - Боты находятся в нестандартных директориях"
+        echo "  - Отсутствуют характерные файлы или библиотеки"
+        echo "  - Ограничения доступа к директориям"
+        echo ""
+        read -p "Нажмите Enter для перехода к ручной настройке..."
         manual_bot_configuration
         return
     fi
@@ -602,30 +630,86 @@ save_bot_configuration() {
 }
 
 # Функция тестирования настроек бота
+# Функция тестирования настроек бота (улучшенная)
 test_bot_configuration() {
     print_message "INFO" "Тестирование настроек бота..."
+    echo ""
     
-    if ! docker inspect "$BOT_CONTAINER_NAME" > /dev/null 2>&1; then
-        print_message "ERROR" "Контейнер '$BOT_CONTAINER_NAME' не найден!"
+    # Проверяем, что все переменные заполнены
+    if [[ -z "$BOT_CONTAINER_NAME" || -z "$BOT_DB_NAME" || -z "$BOT_DB_USER" || -z "$BOT_DIRECTORY" ]]; then
+        print_message "ERROR" "Не все настройки бота заполнены!"
+        echo "  Контейнер: ${BOT_CONTAINER_NAME:-'не задан'}"
+        echo "  База данных: ${BOT_DB_NAME:-'не задана'}"
+        echo "  Пользователь БД: ${BOT_DB_USER:-'не задан'}"
+        echo "  Директория: ${BOT_DIRECTORY:-'не задана'}"
         return 1
     fi
     
+    # Проверяем контейнер
+    print_message "INFO" "Проверка контейнера '$BOT_CONTAINER_NAME'..."
+    if ! docker inspect "$BOT_CONTAINER_NAME" > /dev/null 2>&1; then
+        print_message "ERROR" "Контейнер '$BOT_CONTAINER_NAME' не найден!"
+        echo ""
+        print_message "INFO" "Доступные PostgreSQL контейнеры:"
+        docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep -E "(postgres|postgresql)" || echo "  Нет запущенных PostgreSQL контейнеров"
+        return 1
+    else
+        print_message "SUCCESS" "Контейнер найден и доступен"
+    fi
+    
+    # Проверяем, запущен ли контейнер
+    if ! docker ps --format "{{.Names}}" | grep -q "^${BOT_CONTAINER_NAME}$"; then
+        print_message "WARN" "Контейнер '$BOT_CONTAINER_NAME' не запущен"
+        read -p "Запустить контейнер для тестирования? (y/n): " start_choice
+        if [[ "$start_choice" =~ ^[yY]$ ]]; then
+            docker start "$BOT_CONTAINER_NAME"
+            sleep 5
+        else
+            print_message "INFO" "Пропускаем проверку подключения к БД"
+            return 0
+        fi
+    fi
+    
+    # Проверяем подключение к БД
+    print_message "INFO" "Проверка подключения к базе данных..."
     if docker exec "$BOT_CONTAINER_NAME" psql -U "$BOT_DB_USER" -d "$BOT_DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
         print_message "SUCCESS" "Подключение к базе данных работает!"
     else
         print_message "ERROR" "Не удается подключиться к базе данных!"
+        echo ""
+        print_message "INFO" "Возможные причины:"
+        echo "  - Неверное имя пользователя: $BOT_DB_USER"
+        echo "  - Неверное имя базы данных: $BOT_DB_NAME"
+        echo "  - База данных еще не создана"
+        echo ""
+        print_message "INFO" "Доступные базы данных в контейнере:"
+        docker exec "$BOT_CONTAINER_NAME" psql -U "$BOT_DB_USER" -l 2>/dev/null || echo "  Не удалось получить список баз данных"
         return 1
     fi
     
+    # Проверяем директорию
+    print_message "INFO" "Проверка директории бота..."
     if [[ -d "$BOT_DIRECTORY" ]]; then
         local dir_size=$(du -sh "$BOT_DIRECTORY" 2>/dev/null | awk '{print $1}')
         print_message "SUCCESS" "Директория бота найдена (размер: $dir_size)"
+        echo "  Путь: $BOT_DIRECTORY"
+        
+        # Показываем содержимое директории
+        echo "  Содержимое:"
+        ls -la "$BOT_DIRECTORY" | head -10
+        if [[ $(ls -1 "$BOT_DIRECTORY" | wc -l) -gt 10 ]]; then
+            echo "  ... и еще файлов"
+        fi
     else
         print_message "ERROR" "Директория бота не найдена: $BOT_DIRECTORY"
+        echo ""
+        print_message "INFO" "Проверьте путь к директории бота"
         return 1
     fi
     
+    echo ""
     print_message "SUCCESS" "Все настройки бота корректны!"
+    return 0
 }
 
 # Функция переключения бэкапа бота
