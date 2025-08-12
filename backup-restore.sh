@@ -374,20 +374,30 @@ detect_python_bots() {
 }
 
 # Golang bot search function
+# Улучшенная функция поиска Golang ботов
 detect_golang_bots() {
     find /opt /root /home -maxdepth 4 -type f \( \
         -name "main.go" -o \
         -name "bot.go" -o \
         -name "telegram.go" \
     \) 2>/dev/null | while read file; do
-        if grep -q "telegram-bot-api\|telebot\|telego\|gotgbot" "$file" 2>/dev/null; then
+        # Расширенный поиск Telegram библиотек
+        if grep -q "telegram-bot-api\|telebot\|telego\|gotgbot\|tgbotapi\|telegram\|bot.*api" "$file" 2>/dev/null; then
             echo "GOLANG|$(dirname "$file")|$file"
         fi
     done
     
+    # Также ищем по go.mod с расширенным поиском
     find /opt /root /home -name "go.mod" 2>/dev/null | while read file; do
-        if grep -q "telegram-bot-api\|telebot\|telego" "$file" 2>/dev/null; then
+        if grep -q "telegram-bot-api\|telebot\|telego\|tgbotapi\|telegram" "$file" 2>/dev/null; then
             echo "GOLANG|$(dirname "$file")|go.mod"
+        fi
+    done
+    
+    # Дополнительный поиск по названию директории
+    find /opt /root /home -maxdepth 3 -type d -name "*telegram*" -o -name "*bot*" 2>/dev/null | while read dir; do
+        if [[ -f "$dir/main.go" || -f "$dir/go.mod" ]]; then
+            echo "GOLANG|$dir|directory"
         fi
     done
 }
