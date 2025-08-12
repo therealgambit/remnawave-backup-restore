@@ -23,6 +23,16 @@ CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
 UPDATE_AVAILABLE=false
 BACKUP_EXCLUDE_PATTERNS="*.log *.tmp .git"
+
+# Bot backup settings
+BOT_BACKUP_ENABLED="false"
+BOT_CONTAINER_NAME=""
+BOT_DB_NAME=""
+BOT_DB_USER=""
+BOT_DB_VOLUME=""
+BOT_DIRECTORY=""
+BOT_EXCLUDE_PATTERNS="*.log node_modules __pycache__ *.tmp .git"
+
 VERSION="1.1.0"
 
 if [[ -t 0 ]]; then
@@ -106,6 +116,15 @@ GD_FOLDER_ID="$GD_FOLDER_ID"
 CRON_TIMES="$CRON_TIMES"
 REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR"
 TG_MESSAGE_THREAD_ID="$TG_MESSAGE_THREAD_ID"
+
+# Telegram Bot Backup Settings
+BOT_BACKUP_ENABLED="$BOT_BACKUP_ENABLED"
+BOT_CONTAINER_NAME="$BOT_CONTAINER_NAME"
+BOT_DB_NAME="$BOT_DB_NAME"
+BOT_DB_USER="$BOT_DB_USER"
+BOT_DB_VOLUME="$BOT_DB_VOLUME"
+BOT_DIRECTORY="$BOT_DIRECTORY"
+BOT_EXCLUDE_PATTERNS="$BOT_EXCLUDE_PATTERNS"
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
@@ -123,6 +142,16 @@ load_or_create_config() {
         CRON_TIMES=${CRON_TIMES:-}
         REMNALABS_ROOT_DIR=${REMNALABS_ROOT_DIR:-}
         TG_MESSAGE_THREAD_ID=${TG_MESSAGE_THREAD_ID:-}
+        
+        # Load bot backup settings with defaults
+        BOT_BACKUP_ENABLED="${BOT_BACKUP_ENABLED:-false}"
+        BOT_CONTAINER_NAME="${BOT_CONTAINER_NAME:-}"
+        BOT_DB_NAME="${BOT_DB_NAME:-}"
+        BOT_DB_USER="${BOT_DB_USER:-}"
+        BOT_DB_VOLUME="${BOT_DB_VOLUME:-}"
+        BOT_DIRECTORY="${BOT_DIRECTORY:-}"
+        BOT_EXCLUDE_PATTERNS="${BOT_EXCLUDE_PATTERNS:-*.log node_modules __pycache__ *.tmp .git}"
+
         
         local config_updated=false
 
@@ -321,6 +350,460 @@ escape_markdown_v2() {
         -e 's/}/\\}/g' \
         -e 's/\./\\./g' \
         -e 's/!/\!/g'
+}
+
+# FUNCTIONS FOR WORKING WITH TELEGRAM BOTS
+# Python bot search function
+detect_python_bots() {
+    find /opt /root /home -maxdepth 4 -type f \( \
+        -name "bot.py" -o \
+        -name "main.py" -o \
+        -name "app.py" -o \
+        -name "telegram_bot.py" \
+    \) 2>/dev/null | while read file; do
+        if grep -q "python-telegram-bot\|aiogram\|pyTelegramBotAPI\|telepot" "$file" 2>/dev/null; then
+            echo "PYTHON|$(dirname "$file")|$file"
+        fi
+    done
+    
+    find /opt /root /home -name "requirements.txt" -o -name "setup.py" 2>/dev/null | while read file; do
+        if grep -q "python-telegram-bot\|aiogram\|pyTelegramBotAPI" "$file" 2>/dev/null; then
+            echo "PYTHON|$(dirname "$file")|requirements"
+        fi
+    done
+}
+
+# Golang bot search function
+detect_golang_bots() {
+    find /opt /root /home -maxdepth 4 -type f \( \
+        -name "main.go" -o \
+        -name "bot.go" -o \
+        -name "telegram.go" \
+    \) 2>/dev/null | while read file; do
+        if grep -q "telegram-bot-api\|telebot\|telego\|gotgbot" "$file" 2>/dev/null; then
+            echo "GOLANG|$(dirname "$file")|$file"
+        fi
+    done
+    
+    find /opt /root /home -name "go.mod" 2>/dev/null | while read file; do
+        if grep -q "telegram-bot-api\|telebot\|telego" "$file" 2>/dev/null; then
+            echo "GOLANG|$(dirname "$file")|go.mod"
+        fi
+    done
+}
+
+# Node.js bot search function
+detect_nodejs_bots() {
+    find /opt /root /home -name "package.json" 2>/dev/null | while read file; do
+        if grep -q "node-telegram-bot-api\|telegraf\|telegram-bot-api" "$file" 2>/dev/null; then
+            echo "NODEJS|$(dirname "$file")|package.json"
+        fi
+    done
+}
+
+# Bot detection and selection function
+detect_and_select_bot() {
+    local bots_found=()
+    
+    print_message "INFO" "Поиск Telegram ботов в системе..."
+    
+    while IFS='|' read -r lang dir file; do
+        [[ -n "$lang" ]] && bots_found+=("$lang|$dir|$file")
+    done < <(
+        detect_python_bots
+        detect_golang_bots  
+        detect_nodejs_bots
+    )
+    
+    if [[ ${#bots_found[@]} -eq 0 ]]; then
+        print_message "WARN" "Автоматически ботов не найдено. Переходим к ручной настройке."
+        manual_bot_configuration
+        return
+    fi
+    
+    if [[ ${#bots_found[@]} -eq 1 ]]; then
+        IFS='|' read -r lang dir file <<< "${bots_found[0]}"
+        print_message "SUCCESS" "Найден бот: $lang в директории $dir"
+        ask_to_use_found_bot "$lang" "$dir"
+        return
+    fi
+    
+    show_bot_selection_menu "${bots_found[@]}"
+}
+
+# Function for displaying the bot selection menu
+show_bot_selection_menu() {
+    local bots=("$@")
+    
+    while true; do
+        clear
+        echo -e "${GREEN}${BOLD}Обнаружены Telegram боты:${RESET}"
+        echo ""
+        
+        for i in "${!bots[@]}"; do
+            IFS='|' read -r lang dir file <<< "${bots[$i]}"
+            echo " $((i+1)). ${BOLD}$lang${RESET} - $dir"
+            echo "    └─ Файл: $(basename "$file")"
+            echo ""
+        done
+        
+        echo " $((${#bots[@]}+1)). Ручная настройка"
+        echo " 0. Отменить настройку бота"
+        echo ""
+        
+        read -p "Выберите бота для бэкапа (1-$((${#bots[@]}+1))): " choice
+        
+        if [[ "$choice" =~ ^[1-9][0-9]*$ && "$choice" -le "${#bots[@]}" ]]; then
+            local selected_index=$((choice-1))
+            IFS='|' read -r lang dir file <<< "${bots[$selected_index]}"
+            configure_selected_bot "$lang" "$dir"
+            break
+        elif [[ "$choice" -eq $((${#bots[@]}+1)) ]]; then
+            manual_bot_configuration
+            break
+        elif [[ "$choice" -eq 0 ]]; then
+            return
+        else
+            print_message "ERROR" "Неверный выбор. Попробуйте снова."
+            read -p "Нажмите Enter для продолжения..."
+        fi
+    done
+}
+
+# Function for requesting the use of a found bot
+ask_to_use_found_bot() {
+    local lang="$1"
+    local bot_dir="$2"
+    
+    echo ""
+    read -p "Использовать найденного бота ($lang) в директории $bot_dir? (y/n): " confirm
+    if [[ "$confirm" =~ ^[yY]$ ]]; then
+        configure_selected_bot "$lang" "$bot_dir"
+    else
+        manual_bot_configuration
+    fi
+}
+
+# Customization function for the selected bot
+configure_selected_bot() {
+    local lang="$1"
+    local bot_dir="$2"
+    
+    print_message "INFO" "Настройка бота: $lang в $bot_dir"
+    
+    local compose_file=""
+    for compose in "$bot_dir/docker-compose.yml" "$bot_dir/docker-compose.yaml" "$bot_dir/../docker-compose.yml"; do
+        if [[ -f "$compose" ]]; then
+            compose_file="$compose"
+            break
+        fi
+    done
+    
+    if [[ -n "$compose_file" ]]; then
+        auto_configure_from_compose "$compose_file" "$bot_dir"
+    else
+        print_message "WARN" "Docker Compose файл не найден. Переходим к ручной настройке."
+        manual_bot_configuration_with_dir "$bot_dir"
+    fi
+}
+
+# Функция автоматической настройки из docker-compose
+auto_configure_from_compose() {
+    local compose_file="$1"
+    local bot_dir="$2"
+    
+    local db_container=$(grep -A 10 "postgres" "$compose_file" | grep "container_name:" | head -1 | awk '{print $2}' | tr -d '"')
+    local db_name=$(grep -A 10 "postgres" "$compose_file" | grep "POSTGRES_DB:" | head -1 | awk -F: '{print $2}' | tr -d ' "')
+    local db_user=$(grep -A 10 "postgres" "$compose_file" | grep "POSTGRES_USER:" | head -1 | awk -F: '{print $2}' | tr -d ' "')
+    
+    if [[ -n "$db_container" && -n "$db_name" && -n "$db_user" ]]; then
+        echo ""
+        print_message "SUCCESS" "Найдены настройки PostgreSQL:"
+        echo "  Контейнер: $db_container"
+        echo "  База данных: $db_name"  
+        echo "  Пользователь: $db_user"
+        echo "  Директория: $bot_dir"
+        echo ""
+        
+        read -p "Использовать эти настройки? (y/n): " confirm
+        if [[ "$confirm" =~ ^[yY]$ ]]; then
+            save_bot_configuration "$db_container" "$db_name" "$db_user" "$bot_dir"
+            return
+        fi
+    fi
+    
+    manual_bot_configuration_with_dir "$bot_dir"
+}
+
+# Функция ручной настройки с предустановленной директорией
+manual_bot_configuration_with_dir() {
+    local suggested_dir="$1"
+    
+    echo ""
+    print_message "INFO" "Ручная настройка параметров бота:"
+    echo ""
+    
+    read -p "Название контейнера PostgreSQL бота: " bot_container
+    read -p "Название базы данных: " bot_db_name
+    read -p "Пользователь базы данных: " bot_db_user
+    read -p "Директория бота [$suggested_dir]: " bot_directory
+    
+    bot_directory="${bot_directory:-$suggested_dir}"
+    
+    if [[ -n "$bot_container" && -n "$bot_db_name" && -n "$bot_db_user" && -n "$bot_directory" ]]; then
+        save_bot_configuration "$bot_container" "$bot_db_name" "$bot_db_user" "$bot_directory"
+    else
+        print_message "ERROR" "Все поля обязательны для заполнения!"
+        read -p "Нажмите Enter для продолжения..."
+    fi
+}
+
+# Функция полностью ручной настройки
+manual_bot_configuration() {
+    echo ""
+    print_message "INFO" "Ручная настройка параметров бота:"
+    echo ""
+    
+    read -p "Название контейнера PostgreSQL бота: " bot_container
+    read -p "Название базы данных: " bot_db_name
+    read -p "Пользователь базы данных: " bot_db_user
+    read -p "Полный путь к директории бота: " bot_directory
+    
+    if [[ -n "$bot_container" && -n "$bot_db_name" && -n "$bot_db_user" && -n "$bot_directory" ]]; then
+        save_bot_configuration "$bot_container" "$bot_db_name" "$bot_db_user" "$bot_directory"
+    else
+        print_message "ERROR" "Все поля обязательны для заполнения!"
+        read -p "Нажмите Enter для продолжения..."
+    fi
+}
+
+# Функция сохранения настроек бота
+save_bot_configuration() {
+    local container="$1"
+    local db_name="$2" 
+    local db_user="$3"
+    local bot_dir="$4"
+    
+    BOT_BACKUP_ENABLED="true"
+    BOT_CONTAINER_NAME="$container"
+    BOT_DB_NAME="$db_name"
+    BOT_DB_USER="$db_user"
+    BOT_DIRECTORY="$bot_dir"
+    
+    save_config
+    
+    print_message "SUCCESS" "Настройки бота сохранены!"
+    
+    echo ""
+    read -p "Протестировать настройки бота? (y/n): " test_choice
+    if [[ "$test_choice" =~ ^[yY]$ ]]; then
+        test_bot_configuration
+    fi
+}
+
+# Функция тестирования настроек бота
+test_bot_configuration() {
+    print_message "INFO" "Тестирование настроек бота..."
+    
+    if ! docker inspect "$BOT_CONTAINER_NAME" > /dev/null 2>&1; then
+        print_message "ERROR" "Контейнер '$BOT_CONTAINER_NAME' не найден!"
+        return 1
+    fi
+    
+    if docker exec "$BOT_CONTAINER_NAME" psql -U "$BOT_DB_USER" -d "$BOT_DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+        print_message "SUCCESS" "Подключение к базе данных работает!"
+    else
+        print_message "ERROR" "Не удается подключиться к базе данных!"
+        return 1
+    fi
+    
+    if [[ -d "$BOT_DIRECTORY" ]]; then
+        local dir_size=$(du -sh "$BOT_DIRECTORY" 2>/dev/null | awk '{print $1}')
+        print_message "SUCCESS" "Директория бота найдена (размер: $dir_size)"
+    else
+        print_message "ERROR" "Директория бота не найдена: $BOT_DIRECTORY"
+        return 1
+    fi
+    
+    print_message "SUCCESS" "Все настройки бота корректны!"
+}
+
+# Функция переключения бэкапа бота
+toggle_bot_backup() {
+    if [[ "$BOT_BACKUP_ENABLED" == "true" ]]; then
+        BOT_BACKUP_ENABLED="false"
+        print_message "INFO" "Бэкап бота отключен"
+    else
+        BOT_BACKUP_ENABLED="true"
+        print_message "INFO" "Бэкап бота включен"
+    fi
+    save_config
+}
+
+# Функция сброса настроек бота
+reset_bot_configuration() {
+    read -p "Сбросить все настройки бота? Это действие нельзя отменить (y/n): " confirm
+    if [[ "$confirm" =~ ^[yY]$ ]]; then
+        BOT_BACKUP_ENABLED="false"
+        BOT_CONTAINER_NAME=""
+        BOT_DB_NAME=""
+        BOT_DB_USER=""
+        BOT_DIRECTORY=""
+        
+        save_config
+        print_message "SUCCESS" "Настройки бота сброшены"
+    fi
+}
+
+# Функция настройки бэкапа бота
+configure_bot_backup_menu() {
+    while true; do
+        clear
+        echo -e "${GREEN}${BOLD}Настройка бэкапа Telegram бота${RESET}"
+        echo ""
+        
+        if [[ "$BOT_BACKUP_ENABLED" == "true" ]]; then
+            print_message "SUCCESS" "Статус: ${BOLD}ВКЛЮЧЕН${RESET}"
+            echo "  📦 Контейнер: ${BOLD}${BOT_CONTAINER_NAME}${RESET}"
+            echo "  🗄️  База данных: ${BOLD}${BOT_DB_NAME}${RESET}" 
+            echo "  📁 Директория: ${BOLD}${BOT_DIRECTORY}${RESET}"
+        else
+            print_message "INFO" "Статус: ${BOLD}ВЫКЛЮЧЕН${RESET}"
+        fi
+        
+        echo ""
+        echo " 1. Включить/выключить бэкап бота"
+        echo " 2. 🔍 Автоматический поиск ботов"
+        echo " 3. ⚙️  Ручная настройка параметров"
+        echo " 4. 🧪 Тестирование настроек"
+        echo " 5. 🗑️  Сбросить настройки"
+        echo ""
+        echo " 0. Назад"
+        
+        read -p "Выберите действие: " choice
+        
+        case "$choice" in
+            1) toggle_bot_backup ;;
+            2) detect_and_select_bot ;;
+            3) manual_bot_configuration ;;
+            4) test_bot_configuration ;;
+            5) reset_bot_configuration ;;
+            0) break ;;
+            *) print_message "ERROR" "Неверный выбор!" ;;
+        esac
+        
+        [[ "$choice" != "0" ]] && read -p "Нажмите Enter для продолжения..."
+    done
+}
+
+# Функция создания бэкапа бота
+create_bot_backup() {
+    if ! docker inspect "$BOT_CONTAINER_NAME" > /dev/null 2>&1; then
+        print_message "WARN" "Контейнер бота '$BOT_CONTAINER_NAME' не найден. Пропускаем бэкап бота."
+        return 1
+    fi
+    
+    print_message "INFO" "Создание дампа базы данных бота..."
+    local bot_dump_file="bot_dump_${TIMESTAMP}.sql.gz"
+    if ! docker exec -t "$BOT_CONTAINER_NAME" pg_dump -U "$BOT_DB_USER" "$BOT_DB_NAME" | gzip -9 > "$BACKUP_DIR/$bot_dump_file"; then
+        print_message "ERROR" "Ошибка создания дампа БД бота"
+        return 1
+    fi
+    
+    print_message "INFO" "Архивирование директории бота..."
+    local bot_dir_archive="bot_dir_${TIMESTAMP}.tar.gz"
+    
+    # Создаем временный файл с исключениями
+    local exclude_file=$(mktemp)
+    echo "$BOT_EXCLUDE_PATTERNS_BOT" | tr ' ' '\n' > "$exclude_file"
+    
+    if ! tar -czf "$BACKUP_DIR/$bot_dir_archive" --exclude-from="$exclude_file" -C "$(dirname "$BOT_DIRECTORY")" "$(basename "$BOT_DIRECTORY")"; then
+        print_message "ERROR" "Ошибка архивирования директории бота"
+        rm -f "$exclude_file"
+        return 1
+    fi
+    
+    rm -f "$exclude_file"
+    
+    print_message "SUCCESS" "Бэкап бота создан успешно"
+    return 0
+}
+
+# Функция восстановления бота
+restore_bot_backup() {
+    local temp_restore_dir="$1"
+    
+    # Проверяем наличие файлов бэкапа бота
+    local bot_dump_file=$(find "$temp_restore_dir" -name "bot_dump_*.sql.gz" | head -1)
+    local bot_dir_file=$(find "$temp_restore_dir" -name "bot_dir_*.tar.gz" | head -1)
+    
+    if [[ -z "$bot_dump_file" && -z "$bot_dir_file" ]]; then
+        print_message "INFO" "Бэкап бота в архиве не найден. Пропускаем восстановление бота."
+        return 0
+    fi
+    
+    print_message "INFO" "Обнаружен бэкап бота. Начинаем восстановление..."
+    
+    # Проверяем настройки бота
+    if [[ "$BOT_BACKUP_ENABLED" != "true" || -z "$BOT_CONTAINER_NAME" ]]; then
+        print_message "WARN" "Настройки бота не сконфигурированы. Требуется настройка для восстановления."
+        echo ""
+        read -p "Настроить параметры бота для восстановления? (y/n): " configure_choice
+        if [[ "$configure_choice" =~ ^[yY]$ ]]; then
+            configure_bot_backup_menu
+        else
+            print_message "INFO" "Пропускаем восстановление бота."
+            return 0
+        fi
+    fi
+    
+    # Останавливаем бота если он запущен
+    if docker ps --format "{{.Names}}" | grep -q "^${BOT_CONTAINER_NAME}$"; then
+        print_message "INFO" "Остановка контейнера бота..."
+        docker stop "$BOT_CONTAINER_NAME" > /dev/null 2>&1
+    fi
+    
+    # Восстанавливаем базу данных
+    if [[ -n "$bot_dump_file" ]]; then
+        print_message "INFO" "Восстановление базы данных бота..."
+        
+        # Запускаем только БД если она не запущена
+        if ! docker ps --format "{{.Names}}" | grep -q "^${BOT_CONTAINER_NAME}$"; then
+            docker start "$BOT_CONTAINER_NAME" > /dev/null 2>&1
+            sleep 5
+        fi
+        
+        # Очищаем базу и восстанавливаем
+        docker exec -i "$BOT_CONTAINER_NAME" psql -U "$BOT_DB_USER" -d "$BOT_DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" > /dev/null 2>&1
+        
+        if zcat "$bot_dump_file" | docker exec -i "$BOT_CONTAINER_NAME" psql -U "$BOT_DB_USER" -d "$BOT_DB_NAME"; then
+            print_message "SUCCESS" "База данных бота восстановлена"
+        else
+            print_message "ERROR" "Ошибка восстановления базы данных бота"
+        fi
+    fi
+    
+    # Восстанавливаем директорию
+    if [[ -n "$bot_dir_file" ]]; then
+        print_message "INFO" "Восстановление директории бота..."
+        
+        # Создаем резервную копию текущей директории
+        if [[ -d "$BOT_DIRECTORY" ]]; then
+            local backup_old_dir="${BOT_DIRECTORY}_backup_$(date +%Y%m%d_%H%M%S)"
+            mv "$BOT_DIRECTORY" "$backup_old_dir"
+            print_message "INFO" "Старая директория сохранена как: $backup_old_dir"
+        fi
+        
+        # Восстанавливаем из архива
+        mkdir -p "$(dirname "$BOT_DIRECTORY")"
+        if tar -xzf "$bot_dir_file" -C "$(dirname "$BOT_DIRECTORY")"; then
+            print_message "SUCCESS" "Директория бота восстановлена"
+        else
+            print_message "ERROR" "Ошибка восстановления директории бота"
+        fi
+    fi
+    
+    print_message "SUCCESS" "Восстановление бота завершено"
 }
 
 get_remnawave_version() {
@@ -535,6 +1018,16 @@ create_backup() {
         if eval "tar -czf '$BACKUP_DIR/$REMNAWAVE_DIR_ARCHIVE' $exclude_args -C '$(dirname "$REMNALABS_ROOT_DIR")' '$(basename "$REMNALABS_ROOT_DIR")'"; then
             print_message "SUCCESS" "Директория Remnawave успешно заархивирована."
             BACKUP_ITEMS+=("$REMNAWAVE_DIR_ARCHIVE")
+                        # --- Бэкап Telegram бота если включен ---
+            if [[ "$BOT_BACKUP_ENABLED" == "true" ]]; then
+                print_message "INFO" "Создание бэкапа Telegram бота..."
+                if create_bot_backup; then
+                    BACKUP_ITEMS+=("bot_dump_${TIMESTAMP}.sql.gz" "bot_dir_${TIMESTAMP}.tar.gz")
+                    print_message "SUCCESS" "Бэкап Telegram бота добавлен в общий архив."
+                else
+                    print_message "WARN" "Бэкап Telegram бота пропущен из-за ошибки или отсутствия настроек."
+                fi
+            fi
         else
             STATUS=$?
             echo -e "${RED}❌ Ошибка при архивировании директории Remnawave. Код выхода: ${BOLD}$STATUS${RESET}.${RESET}"
@@ -574,7 +1067,10 @@ create_backup() {
     
     print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
-    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"$'\n📁 *Включено:* БД + вся директория\n📅 *Дата:* '"${DATE}"
+    local bot_status="❌ выключен"
+    [[ "$BOT_BACKUP_ENABLED" == "true" ]] && bot_status="✅ включен"
+
+    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"$'\n🤖 *Telegram Bot:* '"${bot_status}"$'\n📁 *Включено:* БД + директории\n📅 *Дата:* '"${DATE}"
     
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
         if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
@@ -1013,6 +1509,8 @@ restore_backup() {
     
     print_message "INFO" "Удаление временных файлов восстановления..."
     [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+
+    restore_bot_backup "$temp_restore_dir"
     
     echo ""
     
@@ -1588,9 +2086,10 @@ main_menu() {
         echo "   3. Настройка автоматической отправки и уведомлений"
         echo "   4. Настройка способа отправки"
         echo "   5. Изменение конфигурации скрипта"
+        echo "   6. Настройка бэкапа Telegram бота"
         echo ""
-        echo "   6. Обновление скрипта"
-        echo "   7. Удаление скрипта"
+        echo "   7. Обновление скрипта"
+        echo "   8. Удаление скрипта"
         echo ""
         echo "   0. Выход"
         echo -e "   —  Быстрый запуск: ${BOLD}${GREEN}rw-backup${RESET} доступен из любой точки системы"
@@ -1604,8 +2103,9 @@ main_menu() {
             3) setup_auto_send ;;
             4) configure_upload_method ;;
             5) configure_settings ;;
-            6) update_script ;;
-            7) remove_script ;;
+            6) configure_bot_backup_menu ;;
+            7) update_script ;;
+            8) remove_script ;;
             0) echo "Выход..."; exit 0 ;;
             *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
