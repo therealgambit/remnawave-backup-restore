@@ -2,6 +2,7 @@
 
 set -e
 
+VERSION="1.1.0"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -23,7 +24,13 @@ CRON_TIMES=""
 TG_MESSAGE_THREAD_ID=""
 UPDATE_AVAILABLE=false
 BACKUP_EXCLUDE_PATTERNS="*.log *.tmp .git"
-VERSION="1.1.0"
+
+# Переменные для бэкапа Telegram бота
+BOT_BACKUP_ENABLED="false"
+BOT_BACKUP_PATH=""
+BOT_BACKUP_SELECTED=""
+BOT_BACKUP_DB_USER="postgres"
+
 
 if [[ -t 0 ]]; then
     RED=$'\e[31m'
@@ -92,6 +99,254 @@ setup_symlink() {
     return 0
 }
 
+configure_bot_backup() {
+    while true; do
+        clear
+        echo -e "${GREEN}${BOLD}Настройка бэкапа Telegram бота${RESET}"
+        echo ""
+        
+        if [[ "$BOT_BACKUP_ENABLED" == "true" ]]; then
+            print_message "INFO" "Бэкап бота: ${BOLD}${GREEN}ВКЛЮЧЕН${RESET}"
+            print_message "INFO" "Выбранный бот: ${BOLD}${BOT_BACKUP_SELECTED}${RESET}"
+            print_message "INFO" "Путь к боту: ${BOLD}${BOT_BACKUP_PATH}${RESET}"
+        else
+            print_message "INFO" "Бэкап бота: ${BOLD}${RED}ВЫКЛЮЧЕН${RESET}"
+        fi
+        
+        echo ""
+        echo " 1. Включить и настроить бэкап бота"
+        echo " 2. Выключить бэкап бота"
+        echo ""
+        echo " 0. Вернуться в главное меню"
+        echo ""
+        
+        read -rp "${GREEN}[?]${RESET} Выберите пункт: " choice
+        echo ""
+        
+        case $choice in
+            1)
+                clear
+                echo -e "${GREEN}${BOLD}Настройка бэкапа Telegram бота${RESET}"
+                echo ""
+                
+                print_message "ACTION" "Выберите бота для бэкапа:"
+                echo " 1. Бот от Иисуса (remnawave-telegram-shop)"
+                echo ""
+                
+                local bot_choice
+                while true; do
+                    read -rp " ${GREEN}[?]${RESET} Выберите бота: " bot_choice
+                    case "$bot_choice" in
+                        1) 
+                            BOT_BACKUP_SELECTED="Бот от Иисуса"
+                            break 
+                            ;;
+                        *) 
+                            print_message "ERROR" "Неверный ввод." 
+                            ;;
+                    esac
+                done
+                
+                echo ""
+                print_message "ACTION" "Выберите путь к директории бота:"
+                echo " 1. /opt/remnawave-telegram-shop"
+                echo " 2. /root/remnawave-telegram-shop"  
+                echo " 3. /opt/stacks/remnawave-telegram-shop"
+                echo ""
+                
+                local path_choice
+                while true; do
+                    read -rp " ${GREEN}[?]${RESET} Выберите путь: " path_choice
+                    case "$path_choice" in
+                        1) BOT_BACKUP_PATH="/opt/remnawave-telegram-shop"; break ;;
+                        2) BOT_BACKUP_PATH="/root/remnawave-telegram-shop"; break ;;
+                        3) BOT_BACKUP_PATH="/opt/stacks/remnawave-telegram-shop"; break ;;
+                        *) print_message "ERROR" "Неверный ввод." ;;
+                    esac
+                done
+                
+                echo ""
+                read -rp " Введите имя пользователя PostgreSQL для бота (по умолчанию postgres): " bot_db_user
+                BOT_BACKUP_DB_USER="${bot_db_user:-postgres}"
+                
+                BOT_BACKUP_ENABLED="true"
+                save_config
+                
+                print_message "SUCCESS" "Бэкап бота успешно настроен и включен."
+                ;;
+                
+            2)
+                BOT_BACKUP_ENABLED="false"
+                BOT_BACKUP_PATH=""
+                BOT_BACKUP_SELECTED=""
+                save_config
+                
+                print_message "SUCCESS" "Бэкап бота выключен."
+                ;;
+                
+            0) break ;;
+            *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+        esac
+        
+        echo ""
+        read -rp "Нажмите Enter для продолжения..."
+    done
+}
+
+create_bot_backup() {
+    if [[ "$BOT_BACKUP_ENABLED" != "true" ]]; then
+        return 0
+    fi
+    
+    print_message "INFO" "Создание бэкапа Telegram бота: ${BOLD}${BOT_BACKUP_SELECTED}${RESET}..."
+    
+    local BOT_BACKUP_FILE_DB="bot_dump_${TIMESTAMP}.sql.gz"
+    local BOT_DIR_ARCHIVE="bot_dir_${TIMESTAMP}.tar.gz"
+    
+    if ! docker inspect remnawave-telegram-shop-db > /dev/null 2>&1 || ! docker container inspect -f '{{.State.Running}}' remnawave-telegram-shop-db 2>/dev/null | grep -q "true"; then
+        print_message "WARN" "Контейнер бота 'remnawave-telegram-shop-db' не найден или не запущен. Пропускаем бэкап бота."
+        return 1
+    fi
+    
+    print_message "INFO" "Создание PostgreSQL дампа бота..."
+    if ! docker exec -t "remnawave-telegram-shop-db" pg_dumpall -c -U "$BOT_BACKUP_DB_USER" | gzip -9 > "$BACKUP_DIR/$BOT_BACKUP_FILE_DB"; then
+        print_message "ERROR" "Ошибка при создании дампа PostgreSQL бота."
+        return 1
+    fi
+    
+    if [ -d "$BOT_BACKUP_PATH" ]; then
+        print_message "INFO" "Архивирование директории бота ${BOLD}${BOT_BACKUP_PATH}${RESET}..."
+        local exclude_args=""
+        for pattern in $BACKUP_EXCLUDE_PATTERNS; do
+            exclude_args+="--exclude=$pattern "
+        done
+        
+        if eval "tar -czf '$BACKUP_DIR/$BOT_DIR_ARCHIVE' $exclude_args -C '$(dirname "$BOT_BACKUP_PATH")' '$(basename "$BOT_BACKUP_PATH")'"; then
+            print_message "SUCCESS" "Директория бота успешно заархивирована."
+        else
+            print_message "ERROR" "Ошибка при архивировании директории бота."
+            return 1
+        fi
+    else
+        print_message "WARN" "Директория бота ${BOLD}${BOT_BACKUP_PATH}${RESET} не найдена!"
+        return 1
+    fi
+    
+    BACKUP_ITEMS+=("$BOT_BACKUP_FILE_DB" "$BOT_DIR_ARCHIVE")
+    
+    print_message "SUCCESS" "Бэкап бота успешно создан."
+    return 0
+}
+
+restore_bot_backup() {
+    local temp_restore_dir="$1"
+    
+    local BOT_DUMP_FILE=$(find "$temp_restore_dir" -name "bot_dump_*.sql.gz" | head -n 1)
+    local BOT_DIR_ARCHIVE=$(find "$temp_restore_dir" -name "bot_dir_*.tar.gz" | head -n 1)
+    
+    if [[ -z "$BOT_DUMP_FILE" && -z "$BOT_DIR_ARCHIVE" ]]; then
+        return 0
+    fi
+    
+    print_message "INFO" "Обнаружен бэкап Telegram бота в архиве."
+    echo ""
+    read -rp "$(echo -e "${GREEN}[?]${RESET} Восстановить Telegram бота? ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: ")" restore_bot_confirm
+    
+    if [[ "$restore_bot_confirm" != "y" ]]; then
+        print_message "INFO" "Восстановление бота пропущено."
+        return 0
+    fi
+    
+    echo ""
+    print_message "ACTION" "Выберите путь для восстановления бота:"
+    echo " 1. /opt/remnawave-telegram-shop"
+    echo " 2. /root/remnawave-telegram-shop"
+    echo " 3. /opt/stacks/remnawave-telegram-shop"
+    echo ""
+    
+    local restore_path
+    local path_choice
+    while true; do
+        read -rp " ${GREEN}[?]${RESET} Выберите путь: " path_choice
+        case "$path_choice" in
+            1) restore_path="/opt/remnawave-telegram-shop"; break ;;
+            2) restore_path="/root/remnawave-telegram-shop"; break ;;
+            3) restore_path="/opt/stacks/remnawave-telegram-shop"; break ;;
+            *) print_message "ERROR" "Неверный ввод." ;;
+        esac
+    done
+    
+    echo ""
+    read -rp " Введите имя пользователя PostgreSQL для бота (по умолчанию postgres): " restore_bot_db_user
+    restore_bot_db_user="${restore_bot_db_user:-postgres}"
+    
+    print_message "INFO" "Начало восстановления Telegram бота..."
+    
+    if ! cd "$restore_path"; then
+        print_message "ERROR" "Не удалось перейти в каталог ${BOLD}${restore_path}${RESET}."
+        return 1
+    fi
+    
+    print_message "INFO" "Остановка контейнеров бота..."
+    docker compose down || print_message "WARN" "Не удалось корректно остановить сервисы бота."
+    
+    if docker volume ls -q | grep -q "remnawave-telegram-shop-db-data"; then
+        if ! docker volume rm remnawave-telegram-shop-db-data; then
+            print_message "ERROR" "Не удалось удалить том БД бота."
+            return 1
+        fi
+    fi
+    
+    if [[ -n "$BOT_DIR_ARCHIVE" ]]; then
+        print_message "INFO" "Восстановление директории бота..."
+        local temp_extract_dir="$BACKUP_DIR/bot_extract_temp_$$"
+        mkdir -p "$temp_extract_dir"
+        
+        if tar -xzf "$BOT_DIR_ARCHIVE" -C "$temp_extract_dir"; then
+            local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "remnawave-telegram-shop" | head -n 1)
+            if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
+                mkdir -p "$restore_path"
+                cp -rf "$extracted_dir"/* "$restore_path/" 2>/dev/null || print_message "WARN" "Некоторые файлы бота могли не скопироваться."
+                print_message "SUCCESS" "Файлы директории бота восстановлены."
+            fi
+        fi
+        rm -rf "$temp_extract_dir"
+    fi
+    
+    print_message "INFO" "Запуск контейнера БД бота..."
+    docker compose up -d remnawave-telegram-shop-db
+    
+    print_message "INFO" "Ожидание готовности БД бота..."
+    until [ "$(docker inspect --format='{{.State.Health.Status}}' remnawave-telegram-shop-db 2>/dev/null)" == "healthy" ]; do
+        sleep 2
+        echo -n "."
+    done
+    echo ""
+    
+    if [[ -n "$BOT_DUMP_FILE" ]]; then
+        print_message "INFO" "Восстановление БД бота из дампа..."
+        local BOT_DUMP_UNCOMPRESSED="${BOT_DUMP_FILE%.gz}"
+        
+        if ! gunzip "$BOT_DUMP_FILE"; then
+            print_message "ERROR" "Не удалось распаковать дамп БД бота."
+            return 1
+        fi
+        
+        if ! docker exec -i remnawave-telegram-shop-db psql -q -U "$restore_bot_db_user" -d postgres < "$BOT_DUMP_UNCOMPRESSED"; then
+            print_message "ERROR" "Ошибка при восстановлении БД бота."
+            return 1
+        fi
+        
+        print_message "SUCCESS" "БД бота успешно восстановлена."
+    fi
+    
+    print_message "INFO" "Запуск всех контейнеров бота..."
+    docker compose up -d
+    
+    print_message "SUCCESS" "Telegram бот успешно восстановлен."
+    return 0
+}
+
 save_config() {
     print_message "INFO" "Сохранение конфигурации в ${BOLD}${CONFIG_FILE}${RESET}..."
     cat > "$CONFIG_FILE" <<EOF
@@ -106,6 +361,10 @@ GD_FOLDER_ID="$GD_FOLDER_ID"
 CRON_TIMES="$CRON_TIMES"
 REMNALABS_ROOT_DIR="$REMNALABS_ROOT_DIR"
 TG_MESSAGE_THREAD_ID="$TG_MESSAGE_THREAD_ID"
+BOT_BACKUP_ENABLED="$BOT_BACKUP_ENABLED"
+BOT_BACKUP_PATH="$BOT_BACKUP_PATH"
+BOT_BACKUP_SELECTED="$BOT_BACKUP_SELECTED"
+BOT_BACKUP_DB_USER="$BOT_BACKUP_DB_USER"
 EOF
     chmod 600 "$CONFIG_FILE" || { print_message "ERROR" "Не удалось установить права доступа (600) для ${BOLD}${CONFIG_FILE}${RESET}. Проверьте разрешения."; exit 1; }
     print_message "SUCCESS" "Конфигурация сохранена."
@@ -550,7 +809,9 @@ create_backup() {
     fi
     
     echo ""
-    
+
+    create_bot_backup
+
     if ! tar -czf "$BACKUP_DIR/$BACKUP_FILE_FINAL" -C "$BACKUP_DIR" "${BACKUP_ITEMS[@]}"; then
         STATUS=$?
         echo -e "${RED}❌ Ошибка при создании итогового архива бэкапа. Код выхода: ${BOLD}$STATUS${RESET}.${RESET}"
@@ -574,8 +835,13 @@ create_backup() {
     
     print_message "INFO" "Отправка бэкапа (${UPLOAD_METHOD})..."
     local DATE=$(date +'%Y-%m-%d %H:%M:%S')
-    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}"$'\n📁 *Включено:* БД + вся директория\n📅 *Дата:* '"${DATE}"
-    
+    local bot_status=""
+    if [[ "$BOT_BACKUP_ENABLED" == "true" ]]; then
+        bot_status=$'\n🤖 *Telegram бот:* включен в бэкап'
+    fi
+
+    local caption_text=$'💾 #backup_success\n➖➖➖➖➖➖➖➖➖\n✅ *Бэкап успешно создан*\n🌊 *Remnawave:* '"${REMNAWAVE_VERSION}${bot_status}"$'\n📁 *БД + директории*\n📅 *Дата:* '"${DATE}"
+
     if [[ -f "$BACKUP_DIR/$BACKUP_FILE_FINAL" ]]; then
         if [[ "$UPLOAD_METHOD" == "telegram" ]]; then
             if send_telegram_document "$BACKUP_DIR/$BACKUP_FILE_FINAL" "$caption_text"; then
@@ -1008,17 +1274,16 @@ restore_backup() {
     fi
     
     print_message "SUCCESS" "База данных успешно восстановлена."
-    
     echo ""
+    
+    restore_bot_from_backup "$temp_restore_dir"
     
     print_message "INFO" "Удаление временных файлов восстановления..."
     [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
-    
     echo ""
     
     print_message "INFO" "Запуск всех контейнеров..."
     docker compose up -d
-    
     echo ""
     
     print_message "SUCCESS" "Восстановление завершено. Все контейнеры запущены."
@@ -1318,11 +1583,11 @@ configure_upload_method() {
 configure_settings() {
     while true; do
         clear
-        echo -e "${GREEN}${BOLD}Изменение конфигурации скрипта${RESET}"
+        echo -e "${GREEN}${BOLD}Настройка конфигурации скрипта${RESET}"
         echo ""
         echo "   1. Настройки Telegram"
         echo "   2. Настройки Google Drive"
-        echo "   3. Имя пользователя PostgreSQL"
+        echo "   3. Имя пользователя БД Remnawave"
         echo "   4. Путь Remnawave"
         echo ""
         echo "   0. Вернуться в главное меню"
@@ -1585,12 +1850,13 @@ main_menu() {
         echo "   1. Создание бэкапа вручную"
         echo "   2. Восстановление из бэкапа"
         echo ""
-        echo "   3. Настройка автоматической отправки и уведомлений"
-        echo "   4. Настройка способа отправки"
-        echo "   5. Изменение конфигурации скрипта"
+        echo "   3. Настройка бэкапа Telegram бота"
+        echo "   4. Настройка автоматической отправки и уведомлений"
+        echo "   5. Настройка способа отправки"
+        echo "   6. Настройка конфигурации скрипта"
         echo ""
-        echo "   6. Обновление скрипта"
-        echo "   7. Удаление скрипта"
+        echo "   7. Обновление скрипта"
+        echo "   8. Удаление скрипта"
         echo ""
         echo "   0. Выход"
         echo -e "   —  Быстрый запуск: ${BOLD}${GREEN}rw-backup${RESET} доступен из любой точки системы"
@@ -1601,11 +1867,12 @@ main_menu() {
         case $choice in
             1) create_backup ; read -rp "Нажмите Enter для продолжения..." ;;
             2) restore_backup ;;
-            3) setup_auto_send ;;
-            4) configure_upload_method ;;
-            5) configure_settings ;;
-            6) update_script ;;
-            7) remove_script ;;
+            3) configure_bot_backup ;;
+            4) setup_auto_send ;;
+            5) configure_upload_method ;;
+            6) configure_settings ;;
+            7) update_script ;;
+            8) remove_script ;;
             0) echo "Выход..."; exit 0 ;;
             *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ; read -rp "Нажмите Enter для продолжения..." ;;
         esac
