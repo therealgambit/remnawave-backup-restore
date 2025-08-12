@@ -2129,7 +2129,6 @@ if ! command -v jq &> /dev/null; then
 fi
 
 if [[ -z "$1" ]]; then
-    install_dependencies
     load_or_create_config
     setup_symlink
     main_menu
