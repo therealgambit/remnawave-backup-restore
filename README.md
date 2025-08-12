@@ -1,10 +1,12 @@
-<p aling="center"><a href="https://github.com/distillium/remnawave-backup-restore">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="./media/logo.png" />
-   <source media="(prefers-color-scheme: light)" srcset="./media/logo-black.png" />
-   <img alt="Backup & Restore" src="https://github.com/distillium/remnawave-backup-restore" />
- </picture>
-</a></p>
+<p align="center">
+  <a href="https://github.com/distillium/remnawave-backup-restore">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/media/logo.png" />
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/media/logo-black.png" />
+      <img alt="Backup & Restore" src="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/media/logo.png" />
+    </picture>
+  </a>
+</p>
 
 > [!CAUTION]
 > **ЭТОТ СКРИПТ ПРЕДСТАВЛЕН ДЛЯ ВЫПОЛНЕНИЯ ЗНАЧИМЫХ ОПЕРАЦИЙ ПО ОБСЛУЖИВАНИЮ БАЗЫ ДАННЫХ REMNAWAVE. ХОТЯ ОН ТЩАТЕЛЬНО ПРОВЕРЕН, ЕГО ФУНКЦИИ ЗАТРАГИВАЮТ ПОЛНОСТЬЮ БАЗУ ДАННЫХ И ЕЕ КОМПОНЕНТЫ. РЕКОМЕНДУЕТСЯ ВНИМАТЕЛЬНО СЛЕДОВАТЬ ИНСТРУКЦИЯМ ПО ХОДУ ВЫПОЛНЕНИЯ СКРИПТА ПЕРЕД ВЫПОЛНЕНИЕМ ЛЮБЫХ КОМАНД.**
