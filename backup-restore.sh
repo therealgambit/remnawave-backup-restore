@@ -786,9 +786,11 @@ configure_bot_backup_menu() {
         echo ""
         echo " 1. Включить/выключить бэкап бота"
         echo " 2. 🔍 Автоматический поиск ботов"
-        echo " 3. ⚙️  Ручная настройка параметров"
-        echo " 4. 🧪 Тестирование настроек"
-        echo " 5. 🗑️  Сбросить настройки"
+        echo " 3. 🐛 Отладка автопоиска (диагностика)"
+        echo " 4. ⚙️  Ручная настройка параметров"
+        echo " 5. 🧪 Тестирование настроек"
+        echo " 6. 🗑️  Сбросить настройки"
+
         echo ""
         echo " 0. Назад"
         
@@ -797,9 +799,10 @@ configure_bot_backup_menu() {
         case "$choice" in
             1) toggle_bot_backup ;;
             2) detect_and_select_bot ;;
-            3) manual_bot_configuration ;;
-            4) test_bot_configuration ;;
-            5) reset_bot_configuration ;;
+            3) debug_bot_detection ;;
+            4) manual_bot_configuration ;;
+            5) test_bot_configuration ;;
+            6) reset_bot_configuration ;;
             0) break ;;
             *) print_message "ERROR" "Неверный выбор!" ;;
         esac
