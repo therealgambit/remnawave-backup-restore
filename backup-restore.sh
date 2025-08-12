@@ -92,30 +92,6 @@ setup_symlink() {
     return 0
 }
 
-install_dependencies() {
-    print_message "INFO" "Проверка и установка необходимых пакетов..."
-    echo ""
-
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}❌ Ошибка: Этот скрипт требует прав root для установки зависимостей. Пожалуйста, запустите его с '${BOLD}sudo${RESET}' или от пользователя '${BOLD}root${RESET}'.${RESET}"
-        exit 1
-    fi
-
-    if command -v apt-get &> /dev/null; then
-        print_message "INFO" "Обновление списка пакетов ${BOLD}apt${RESET}..."
-        apt-get update -qq > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось обновить список пакетов ${BOLD}apt${RESET}. Проверьте подключение к интернету.${RESET}"; exit 1; }
-        apt-get install -y toilet figlet procps lsb-release whiptail curl gzip cron > /dev/null 2>&1 || { echo -e "${RED}❌ Ошибка: Не удалось установить необходимые пакеты. Проверьте ошибки установки.${RESET}"; exit 1; }
-        print_message "SUCCESS" "Все необходимые пакеты установлены или уже присутствуют в системе."
-    else
-        print_message "WARN" "Внимание: Не удалось найти менеджер пакетов ${BOLD}'apt-get'${RESET}. Установка зависимостей может потребоваться вручную."
-        command -v curl &> /dev/null || { echo -e "${RED}❌ Ошибка: ${BOLD}'curl'${RESET} не найден. Установите его вручную.${RESET}"; exit 1; }
-        command -v docker &> /dev/null || { echo -e "${RED}❌ Ошибка: ${BOLD}'docker'${RESET} не найден. Установите его вручную.${RESET}"; exit 1; }
-        command -v gzip &> /dev/null || { echo -e "${RED}❌ Ошибка: ${BOLD}'gzip'${RESET} не найден. Установите его вручную.${RESET}"; exit 1; }
-        print_message "SUCCESS" "Основные зависимости (${BOLD}curl${RESET}, ${BOLD}docker${RESET}, ${BOLD}gzip${RESET}) найдены."
-    fi
-    echo ""
-}
-
 save_config() {
     print_message "INFO" "Сохранение конфигурации в ${BOLD}${CONFIG_FILE}${RESET}..."
     cat > "$CONFIG_FILE" <<EOF
