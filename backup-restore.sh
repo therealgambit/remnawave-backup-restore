@@ -605,6 +605,34 @@ manual_bot_configuration() {
     fi
 }
 
+# Функция для отладки автопоиска (временная)
+debug_bot_detection() {
+    echo -e "${BLUE}${BOLD}=== ОТЛАДКА АВТОПОИСКА БОТОВ ===${RESET}"
+    echo ""
+    
+    echo "1. Поиск Python файлов:"
+    find /opt /root /home -maxdepth 4 -name "*.py" 2>/dev/null | head -10
+    echo ""
+    
+    echo "2. Поиск Go файлов:"
+    find /opt /root /home -maxdepth 4 -name "*.go" 2>/dev/null | head -10
+    echo ""
+    
+    echo "3. Поиск package.json:"
+    find /opt /root /home -name "package.json" 2>/dev/null | head -10
+    echo ""
+    
+    echo "4. Поиск requirements.txt:"
+    find /opt /root /home -name "requirements.txt" 2>/dev/null | head -10
+    echo ""
+    
+    echo "5. Поиск docker-compose файлов:"
+    find /opt /root /home -name "docker-compose.yml" -o -name "docker-compose.yaml" 2>/dev/null | head -10
+    echo ""
+    
+    read -p "Нажмите Enter для продолжения..."
+}
+
 # Функция сохранения настроек бота
 save_bot_configuration() {
     local container="$1"
