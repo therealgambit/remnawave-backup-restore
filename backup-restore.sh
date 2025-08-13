@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.2"
+VERSION="2.0.3"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -486,7 +486,7 @@ restore_bot_backup() {
     
     # ШАГ 5: Поднимаем контейнер БД и восстанавливаем дамп
     print_message "INFO" "Запуск контейнера БД бота..."
-    if ! docker compose up -d "$BOT_CONTAINER_NAME"; then
+    if ! docker compose up -d db; then
         print_message "ERROR" "Не удалось запустить контейнер БД бота."
         return 1
     fi
