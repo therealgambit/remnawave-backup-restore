@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.1"
+VERSION="2.0.2"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -478,10 +478,10 @@ restore_bot_backup() {
         return 1
     fi
     
-    # Проверяем наличие docker-compose.yml
-    if [[ ! -f "docker-compose.yml" ]]; then
-        print_message "ERROR" "Файл docker-compose.yml не найден в восстановленной директории."
-        return 1
+    # Проверяем наличие docker-compose.yml или docker-compose.yaml
+    if [[ ! -f "docker-compose.yml" && ! -f "docker-compose.yaml" ]]; then
+    print_message "ERROR" "Файл docker-compose.yml или docker-compose.yaml не найден в восстановленной директории."
+    return 1
     fi
     
     # ШАГ 5: Поднимаем контейнер БД и восстанавливаем дамп
@@ -1536,7 +1536,13 @@ restore_backup() {
     fi
     
     print_message "SUCCESS" "База данных успешно восстановлена."
-    
+    echo ""
+    print_message "INFO" "Запуск всех контейнеров Remnawave..."
+    if ! docker compose up -d; then
+        print_message "ERROR" "Не удалось запустить все контейнеры Remnawave."
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
     echo ""
     
     # Восстановление бота (если есть в архиве)
@@ -1544,16 +1550,6 @@ restore_backup() {
     
     print_message "INFO" "Удаление временных файлов восстановления..."
     [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
-    
-    echo ""
-    
-    # ШАГ 6: Запускаем все контейнеры
-    print_message "INFO" "Запуск всех контейнеров Remnawave..."
-    if ! docker compose up -d; then
-        print_message "ERROR" "Не удалось запустить все контейнеры Remnawave."
-        read -rp "Нажмите Enter для возврата в меню..."
-        return 1
-    fi
     
     # Небольшая пауза для стабилизации
     sleep 3
