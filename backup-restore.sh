@@ -256,21 +256,22 @@ create_bot_backup() {
     
     if [[ -z "$BOT_CONTAINER_NAME" ]]; then
         print_message "ERROR" "Неизвестный бот: $BOT_BACKUP_SELECTED"
-        return 1
+        print_message "INFO" "Продолжаем создание бэкапа без бота..."
+        return 0
     fi
-    
+
     local BOT_BACKUP_FILE_DB="bot_dump_${TIMESTAMP}.sql.gz"
     local BOT_DIR_ARCHIVE="bot_dir_${TIMESTAMP}.tar.gz"
     
     if ! docker inspect "$BOT_CONTAINER_NAME" > /dev/null 2>&1 || ! docker container inspect -f '{{.State.Running}}' "$BOT_CONTAINER_NAME" 2>/dev/null | grep -q "true"; then
         print_message "WARN" "Контейнер бота '$BOT_CONTAINER_NAME' не найден или не запущен. Пропускаем бэкап бота."
-        return 1
+        return 0
     fi
     
     print_message "INFO" "Создание PostgreSQL дампа бота..."
     if ! docker exec -t "$BOT_CONTAINER_NAME" pg_dumpall -c -U "$BOT_BACKUP_DB_USER" | gzip -9 > "$BACKUP_DIR/$BOT_BACKUP_FILE_DB"; then
-        print_message "ERROR" "Ошибка при создании дампа PostgreSQL бота."
-        return 1
+        print_message "ERROR" "Ошибка при создании дампа PostgreSQL бота. Продолжаем без бэкапа бота..."
+        return 0
     fi
     
     if [ -d "$BOT_BACKUP_PATH" ]; then
@@ -287,8 +288,8 @@ create_bot_backup() {
             return 1
         fi
     else
-        print_message "WARN" "Директория бота ${BOLD}${BOT_BACKUP_PATH}${RESET} не найдена!"
-        return 1
+        print_message "WARN" "Директория бота ${BOLD}${BOT_BACKUP_PATH}${RESET} не найдена! Продолжаем без архива директории бота..."
+        return 0
     fi
     
     BACKUP_ITEMS+=("$BOT_BACKUP_FILE_DB" "$BOT_DIR_ARCHIVE")
