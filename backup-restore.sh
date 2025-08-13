@@ -462,11 +462,21 @@ restore_bot_backup() {
     
     # ШАГ 3: Удаляем оставшиеся тома БД (если есть)
     print_message "INFO" "Проверка и удаление старых томов БД..."
-    if docker volume ls -q | grep -q "$BOT_VOLUME_NAME"; then
-        if docker volume rm "$BOT_VOLUME_NAME" 2>/dev/null; then
+    if docker volume ls -q | grep -Fxq "$BOT_VOLUME_NAME"; then
+    # Ищем контейнеры, которые используют этот том
+        local containers_using_volume
+        containers_using_volume=$(docker ps -aq --filter volume="$BOT_VOLUME_NAME")
+    
+        if [[ -n "$containers_using_volume" ]]; then
+            print_message "INFO" "Найдены контейнеры, использующие том $BOT_VOLUME_NAME. Удаляем..."
+            docker rm -f $containers_using_volume >/dev/null 2>&1
+        fi
+    
+        # Удаляем том
+        if docker volume rm "$BOT_VOLUME_NAME" >/dev/null 2>&1; then
             print_message "SUCCESS" "Старый том БД $BOT_VOLUME_NAME удален."
         else
-            print_message "WARN" "Не удалось удалить том $BOT_VOLUME_NAME (возможно, используется контейнером)."
+            print_message "WARN" "Не удалось удалить том $BOT_VOLUME_NAME."
         fi
     else
         print_message "INFO" "Старых томов БД не найдено."
