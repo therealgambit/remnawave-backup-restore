@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.5"
+VERSION="2.0.6"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -397,24 +397,25 @@ restore_bot_backup() {
     # ШАГ 1: Проверяем директорию и готовим чистое место
     if [[ -d "$restore_path" ]]; then
         print_message "INFO" "Директория ${BOLD}${restore_path}${RESET} существует. Останавливаем контейнеры и очищаем..."
-        
+    
         # Переходим в директорию для остановки контейнеров
-        if cd "$restore_path" 2>/dev/null && [[ -f "docker-compose.yml" ]]; then
+        if cd "$restore_path" 2>/dev/null && ([[ -f "docker-compose.yml" ]] || [[ -f "docker-compose.yaml" ]]); then
             print_message "INFO" "Остановка существующих контейнеров бота..."
             docker compose down 2>/dev/null || print_message "WARN" "Не удалось остановить контейнеры (возможно, они уже остановлены)."
         else
-            print_message "INFO" "Docker Compose файл не найден, пропускаем остановку контейнеров."
+            print_message "INFO" "Docker Compose файл (.yml или .yaml) не найден, пропускаем остановку контейнеров."
         fi
+    fi
         
-        # Возвращаемся в корневую директорию
-        cd /
+    # Возвращаемся в корневую директорию
+    cd /
         
-        # Удаляем старую директорию
-        print_message "INFO" "Удаление старой директории..."
-        if ! rm -rf "$restore_path"; then
-            print_message "ERROR" "Не удалось удалить директорию ${BOLD}${restore_path}${RESET}."
-            return 1
-        fi
+    # Удаляем старую директорию
+    print_message "INFO" "Удаление старой директории..."
+    if ! rm -rf "$restore_path"; then
+        print_message "ERROR" "Не удалось удалить директорию ${BOLD}${restore_path}${RESET}."
+        return 1
+    fi
         print_message "SUCCESS" "Старая директория удалена."
     else
         print_message "INFO" "Директория ${BOLD}${restore_path}${RESET} не существует. Это чистая установка."
