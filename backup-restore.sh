@@ -233,13 +233,13 @@ get_bot_params() {
     
     case "$bot_name" in
         "Бот от Иисуса")
-            echo "remnawave-telegram-shop-db|remnawave-telegram-shop-db-data|remnawave-telegram-shop"
+            echo "remnawave-telegram-shop-db|remnawave-telegram-shop-db-data|remnawave-telegram-shop|db"
             ;;
         "Бот от Мачки")
-            echo "remnawave-tg-shop-db|remnawave-tg-shop-db-data|remnawave-tg-shop"
+            echo "remnawave-tg-shop-db|remnawave-tg-shop-db-data|remnawave-tg-shop|remnawave-tg-shop-db"
             ;;
         *)
-            echo "||"
+            echo "|||"
             ;;
     esac
 }
@@ -252,7 +252,7 @@ create_bot_backup() {
     print_message "INFO" "Создание бэкапа Telegram бота: ${BOLD}${BOT_BACKUP_SELECTED}${RESET}..."
     
     local bot_params=$(get_bot_params "$BOT_BACKUP_SELECTED")
-    IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME <<< "$bot_params"
+    IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME BOT_SERVICE_NAME <<< "$bot_params"
     
     if [[ -z "$BOT_CONTAINER_NAME" ]]; then
         print_message "ERROR" "Неизвестный бот: $BOT_BACKUP_SELECTED"
@@ -386,7 +386,7 @@ restore_bot_backup() {
     
     # Получаем параметры выбранного бота
     local bot_params=$(get_bot_params "$selected_bot_name")
-    IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME <<< "$bot_params"
+    IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME BOT_SERVICE_NAME <<< "$bot_params"
     
     echo ""
     read -rp " Введите имя пользователя PostgreSQL для бота (по умолчанию postgres): " restore_bot_db_user
@@ -498,7 +498,7 @@ restore_bot_backup() {
     
     # ШАГ 5: Поднимаем контейнер БД и восстанавливаем дамп
     print_message "INFO" "Запуск контейнера БД бота..."
-    if ! docker compose up -d db; then
+    if ! docker compose up -d "$BOT_SERVICE_NAME"; then
         print_message "ERROR" "Не удалось запустить контейнер БД бота."
         return 1
     fi
