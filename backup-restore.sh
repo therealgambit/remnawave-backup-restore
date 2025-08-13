@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -437,7 +437,7 @@ restore_bot_backup() {
         if tar -xzf "$BOT_DIR_ARCHIVE" -C "$temp_extract_dir"; then
             local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "$BOT_DIR_NAME" | head -n 1)
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
-                if cp -rf "$extracted_dir"/* "$restore_path/" 2>/dev/null; then
+                if cp -rf "$extracted_dir"/. "$restore_path/" 2>/dev/null; then
                     print_message "SUCCESS" "Файлы директории бота восстановлены."
                 else
                     print_message "ERROR" "Ошибка при копировании файлов бота."
@@ -1389,7 +1389,7 @@ restore_backup() {
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
                 print_message "INFO" "Копирование файлов из архива в директорию Remnawave..."
                 
-                if cp -rf "$extracted_dir"/* "$REMNALABS_ROOT_DIR/" 2>/dev/null; then
+                if cp -rf "$extracted_dir"/. "$REMNALABS_ROOT_DIR/" 2>/dev/null; then
                     print_message "SUCCESS" "Файлы директории Remnawave успешно восстановлены."
                 else
                     print_message "ERROR" "Ошибка при копировании файлов Remnawave."
