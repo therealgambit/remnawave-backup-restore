@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.3"
+VERSION="2.0.4"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -519,7 +519,7 @@ restore_bot_backup() {
             return 1
         fi
         
-        if ! docker exec -i "$BOT_CONTAINER_NAME" psql -q -U "$restore_bot_db_user" -d postgres < "$BOT_DUMP_UNCOMPRESSED"; then
+        if ! docker exec -i "$BOT_CONTAINER_NAME" psql -q -U postgres -d postgres < "$BOT_DUMP_UNCOMPRESSED" > /dev/null 2>&1; then
             print_message "ERROR" "Ошибка при восстановлении БД бота."
             return 1
         fi
