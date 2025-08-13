@@ -301,11 +301,12 @@ create_bot_backup() {
 restore_bot_backup() {
     local temp_restore_dir="$1"
     
+    # Проверяем наличие файлов бота в архиве
     local BOT_DUMP_FILE=$(find "$temp_restore_dir" -name "bot_dump_*.sql.gz" | head -n 1)
     local BOT_DIR_ARCHIVE=$(find "$temp_restore_dir" -name "bot_dir_*.tar.gz" | head -n 1)
     
     if [[ -z "$BOT_DUMP_FILE" && -z "$BOT_DIR_ARCHIVE" ]]; then
-        return 0
+        return 0  # Нет файлов бота в архиве
     fi
     
     print_message "INFO" "Обнаружен бэкап Telegram бота в архиве."
@@ -322,7 +323,7 @@ restore_bot_backup() {
     echo " 1. Бот от Иисуса (remnawave-telegram-shop)"
     echo " 2. Бот от Мачки (remnawave-tg-shop)"
     echo ""
-
+    
     local bot_choice
     local selected_bot_name
     while true; do
@@ -333,10 +334,10 @@ restore_bot_backup() {
             *) print_message "ERROR" "Неверный ввод." ;;
         esac
     done
-
+    
     echo ""
     print_message "ACTION" "Выберите путь для восстановления бота:"
-
+    
     if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
         echo " 1. /opt/remnawave-telegram-shop"
         echo " 2. /root/remnawave-telegram-shop"
@@ -347,7 +348,7 @@ restore_bot_backup() {
         echo " 3. /opt/stacks/remnawave-tg-shop"
     fi
     echo ""
-
+    
     local restore_path
     local path_choice
     while true; do
@@ -375,14 +376,15 @@ restore_bot_backup() {
                 else
                     restore_path="/opt/stacks/remnawave-tg-shop"
                 fi
-                break
+                break 
                 ;;
             *) 
                 print_message "ERROR" "Неверный ввод." 
                 ;;
         esac
     done
-
+    
+    # Получаем параметры выбранного бота
     local bot_params=$(get_bot_params "$selected_bot_name")
     IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME <<< "$bot_params"
     
@@ -392,47 +394,122 @@ restore_bot_backup() {
     
     print_message "INFO" "Начало восстановления Telegram бота..."
     
-    if ! cd "$restore_path"; then
-        print_message "ERROR" "Не удалось перейти в каталог ${BOLD}${restore_path}${RESET}."
-        return 1
-    fi
-    
-    print_message "INFO" "Остановка контейнеров бота..."
-    docker compose down || print_message "WARN" "Не удалось корректно остановить сервисы бота."
-    
-    if docker volume ls -q | grep -q "$BOT_VOLUME_NAME"; then
-        if ! docker volume rm "$BOT_VOLUME_NAME"; then
-            print_message "ERROR" "Не удалось удалить том БД бота."
+    # ШАГ 1: Проверяем директорию и готовим чистое место
+    if [[ -d "$restore_path" ]]; then
+        print_message "INFO" "Директория ${BOLD}${restore_path}${RESET} существует. Останавливаем контейнеры и очищаем..."
+        
+        # Переходим в директорию для остановки контейнеров
+        if cd "$restore_path" 2>/dev/null && [[ -f "docker-compose.yml" ]]; then
+            print_message "INFO" "Остановка существующих контейнеров бота..."
+            docker compose down 2>/dev/null || print_message "WARN" "Не удалось остановить контейнеры (возможно, они уже остановлены)."
+        else
+            print_message "INFO" "Docker Compose файл не найден, пропускаем остановку контейнеров."
+        fi
+        
+        # Возвращаемся в корневую директорию
+        cd /
+        
+        # Удаляем старую директорию
+        print_message "INFO" "Удаление старой директории..."
+        if ! rm -rf "$restore_path"; then
+            print_message "ERROR" "Не удалось удалить директорию ${BOLD}${restore_path}${RESET}."
             return 1
         fi
+        print_message "SUCCESS" "Старая директория удалена."
+    else
+        print_message "INFO" "Директория ${BOLD}${restore_path}${RESET} не существует. Это чистая установка."
     fi
     
+    # Создаем чистую директорию
+    print_message "INFO" "Создание новой директории..."
+    if ! mkdir -p "$restore_path"; then
+        print_message "ERROR" "Не удалось создать директорию ${BOLD}${restore_path}${RESET}."
+        return 1
+    fi
+    print_message "SUCCESS" "Новая директория создана."
+    
+    # ШАГ 2: Распаковываем бэкап и восстанавливаем директорию
     if [[ -n "$BOT_DIR_ARCHIVE" ]]; then
-        print_message "INFO" "Восстановление директории бота..."
+        print_message "INFO" "Восстановление директории бота из архива..."
         local temp_extract_dir="$BACKUP_DIR/bot_extract_temp_$$"
         mkdir -p "$temp_extract_dir"
         
         if tar -xzf "$BOT_DIR_ARCHIVE" -C "$temp_extract_dir"; then
             local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "$BOT_DIR_NAME" | head -n 1)
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
-                mkdir -p "$restore_path"
-                cp -rf "$extracted_dir"/* "$restore_path/" 2>/dev/null || print_message "WARN" "Некоторые файлы бота могли не скопироваться."
-                print_message "SUCCESS" "Файлы директории бота восстановлены."
+                if cp -rf "$extracted_dir"/* "$restore_path/" 2>/dev/null; then
+                    print_message "SUCCESS" "Файлы директории бота восстановлены."
+                else
+                    print_message "ERROR" "Ошибка при копировании файлов бота."
+                    rm -rf "$temp_extract_dir"
+                    return 1
+                fi
+            else
+                print_message "ERROR" "Не найдена папка $BOT_DIR_NAME в архиве."
+                rm -rf "$temp_extract_dir"
+                return 1
             fi
+        else
+            print_message "ERROR" "Ошибка при распаковке архива директории бота."
+            rm -rf "$temp_extract_dir"
+            return 1
         fi
         rm -rf "$temp_extract_dir"
+    else
+        print_message "WARN" "Архив директории бота не найден в бэкапе."
+        return 1
     fi
     
+    # ШАГ 3: Удаляем оставшиеся тома БД (если есть)
+    print_message "INFO" "Проверка и удаление старых томов БД..."
+    if docker volume ls -q | grep -q "$BOT_VOLUME_NAME"; then
+        if docker volume rm "$BOT_VOLUME_NAME" 2>/dev/null; then
+            print_message "SUCCESS" "Старый том БД $BOT_VOLUME_NAME удален."
+        else
+            print_message "WARN" "Не удалось удалить том $BOT_VOLUME_NAME (возможно, используется контейнером)."
+        fi
+    else
+        print_message "INFO" "Старых томов БД не найдено."
+    fi
+    
+    # ШАГ 4: Переходим в директорию
+    if ! cd "$restore_path"; then
+        print_message "ERROR" "Не удалось перейти в восстановленную директорию ${BOLD}${restore_path}${RESET}."
+        return 1
+    fi
+    
+    # Проверяем наличие docker-compose.yml
+    if [[ ! -f "docker-compose.yml" ]]; then
+        print_message "ERROR" "Файл docker-compose.yml не найден в восстановленной директории."
+        return 1
+    fi
+    
+    # ШАГ 5: Поднимаем контейнер БД и восстанавливаем дамп
     print_message "INFO" "Запуск контейнера БД бота..."
-    docker compose up -d "$BOT_CONTAINER_NAME"
-
+    if ! docker compose up -d "$BOT_CONTAINER_NAME"; then
+        print_message "ERROR" "Не удалось запустить контейнер БД бота."
+        return 1
+    fi
+    
+    # Ждем готовности БД
     print_message "INFO" "Ожидание готовности БД бота..."
+    local wait_count=0
+    local max_wait=60  # Максимум 2 минуты ожидания
+    
     until [ "$(docker inspect --format='{{.State.Health.Status}}' "$BOT_CONTAINER_NAME" 2>/dev/null)" == "healthy" ]; do
         sleep 2
         echo -n "."
+        wait_count=$((wait_count + 1))
+        if [ $wait_count -gt $max_wait ]; then
+            echo ""
+            print_message "ERROR" "Превышено время ожидания готовности БД бота."
+            return 1
+        fi
     done
     echo ""
+    print_message "SUCCESS" "БД бота готова к работе."
     
+    # Восстанавливаем дамп БД
     if [[ -n "$BOT_DUMP_FILE" ]]; then
         print_message "INFO" "Восстановление БД бота из дампа..."
         local BOT_DUMP_UNCOMPRESSED="${BOT_DUMP_FILE%.gz}"
@@ -448,12 +525,21 @@ restore_bot_backup() {
         fi
         
         print_message "SUCCESS" "БД бота успешно восстановлена."
+    else
+        print_message "WARN" "Дамп БД бота не найден в архиве."
     fi
     
+    # ШАГ 6: Запускаем все контейнеры
     print_message "INFO" "Запуск всех контейнеров бота..."
-    docker compose up -d
+    if ! docker compose up -d; then
+        print_message "ERROR" "Не удалось запустить все контейнеры бота."
+        return 1
+    fi
     
-    print_message "SUCCESS" "Telegram бот успешно восстановлен."
+    # Небольшая пауза для стабилизации
+    sleep 3
+    
+    print_message "SUCCESS" "Telegram бот успешно восстановлен и запущен!"
     return 0
 }
 
@@ -1227,33 +1313,46 @@ restore_backup() {
     
     clear
     
-    print_message "INFO" "Начало процесса полного сброса и восстановления базы данных..."
+    print_message "INFO" "Начало процесса полного сброса и восстановления Remnawave..."
     echo ""
     
-    print_message "INFO" "Остановка контейнеров и удаление тома базы данных..."
-    if ! cd "$REMNALABS_ROOT_DIR"; then
-        print_message "ERROR" "Ошибка: Не удалось перейти в каталог ${BOLD}${REMNALABS_ROOT_DIR}${RESET}. Убедитесь, что файл ${BOLD}docker-compose.yml${RESET} находится там."
-        read -rp "Нажмите Enter для возврата в меню..."
-        return 1
-    fi
-    
-    docker compose down || {
-        print_message "WARN" "Не удалось корректно остановить сервисы. Возможно, они уже остановлены."
-    }
-    
-    if docker volume ls -q | grep -q "remnawave-db-data"; then
-        if ! docker volume rm remnawave-db-data; then
-            echo -e "${RED}Критическая ошибка: Не удалось удалить том ${BOLD}remnawave-db-data${RESET}. Восстановление невозможно. Проверьте права или занятость тома.${RESET}"
+    # ШАГ 1: Проверяем директорию и готовим чистое место
+    if [[ -d "$REMNALABS_ROOT_DIR" ]]; then
+        print_message "INFO" "Директория ${BOLD}${REMNALABS_ROOT_DIR}${RESET} существует. Останавливаем контейнеры и очищаем..."
+        
+        # Переходим в директорию для остановки контейнеров
+        if cd "$REMNALABS_ROOT_DIR" 2>/dev/null && [[ -f "docker-compose.yml" ]]; then
+            print_message "INFO" "Остановка существующих контейнеров Remnawave..."
+            docker compose down 2>/dev/null || print_message "WARN" "Не удалось остановить контейнеры (возможно, они уже остановлены)."
+        else
+            print_message "INFO" "Docker Compose файл не найден, пропускаем остановку контейнеров."
+        fi
+        
+        # Возвращаемся в корневую директорию
+        cd /
+        
+        # Удаляем старую директорию
+        print_message "INFO" "Удаление старой директории Remnawave..."
+        if ! rm -rf "$REMNALABS_ROOT_DIR"; then
+            print_message "ERROR" "Не удалось удалить директорию ${BOLD}${REMNALABS_ROOT_DIR}${RESET}."
             read -rp "Нажмите Enter для возврата в меню..."
             return 1
         fi
-        print_message "SUCCESS" "Том ${BOLD}remnawave-db-data${RESET} успешно удален."
+        print_message "SUCCESS" "Старая директория удалена."
     else
-        print_message "INFO" "Том ${BOLD}remnawave-db-data${RESET} не найден, пропуск удаления."
+        print_message "INFO" "Директория ${BOLD}${REMNALABS_ROOT_DIR}${RESET} не существует. Это чистая установка."
     fi
     
-    echo ""
+    # Создаем чистую директорию
+    print_message "INFO" "Создание новой директории Remnawave..."
+    if ! mkdir -p "$REMNALABS_ROOT_DIR"; then
+        print_message "ERROR" "Не удалось создать директорию ${BOLD}${REMNALABS_ROOT_DIR}${RESET}."
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
+    print_message "SUCCESS" "Новая директория создана."
     
+    # ШАГ 2: Распаковываем архив бэкапа
     print_message "INFO" "Распаковка архива бэкапа..."
     local temp_restore_dir="$BACKUP_DIR/restore_temp_$$"
     mkdir -p "$temp_restore_dir"
@@ -1272,6 +1371,7 @@ restore_backup() {
     print_message "SUCCESS" "Архив успешно распакован во временную директорию."
     echo ""
     
+    # Восстановление директории Remnawave
     print_message "INFO" "Поиск архива директории Remnawave в бэкапе..."
     local REMNAWAVE_DIR_ARCHIVE=$(find "$temp_restore_dir" -name "remnawave_dir_*.tar.gz" | head -n 1)
     
@@ -1287,17 +1387,23 @@ restore_backup() {
             local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "remnawave" | head -n 1)
             
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
-                print_message "INFO" "Копирование файлов из архива в текущую директорию..."
-                
-                mkdir -p "$REMNALABS_ROOT_DIR"
+                print_message "INFO" "Копирование файлов из архива в директорию Remnawave..."
                 
                 if cp -rf "$extracted_dir"/* "$REMNALABS_ROOT_DIR/" 2>/dev/null; then
                     print_message "SUCCESS" "Файлы директории Remnawave успешно восстановлены."
                 else
-                    print_message "WARN" "Некоторые файлы могли не скопироваться. Продолжаем..."
+                    print_message "ERROR" "Ошибка при копировании файлов Remnawave."
+                    rm -rf "$temp_extract_dir"
+                    [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+                    read -rp "Нажмите Enter для возврата в меню..."
+                    return 1
                 fi
             else
-                print_message "WARN" "Не удалось найти папку remnawave в архиве."
+                print_message "ERROR" "Не удалось найти папку remnawave в архиве."
+                rm -rf "$temp_extract_dir"
+                [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+                read -rp "Нажмите Enter для возврата в меню..."
+                return 1
             fi
             
             rm -rf "$temp_extract_dir"
@@ -1317,10 +1423,10 @@ restore_backup() {
         
         if [ -f "$temp_restore_dir/$ENV_NODE_FILE" ]; then
             print_message "INFO" "Найден файл ${BOLD}${ENV_NODE_FILE}${RESET} (старый формат). Восстанавливаем..."
-            mkdir -p "$REMNALABS_ROOT_DIR"
             mv "$temp_restore_dir/$ENV_NODE_FILE" "$ENV_NODE_RESTORE_PATH" || {
                 print_message "ERROR" "Ошибка при восстановлении ${BOLD}${ENV_NODE_FILE}${RESET}."
                 [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+                read -rp "Нажмите Enter для возврата в меню..."
                 return 1
             }
             print_message "SUCCESS" "Файл ${BOLD}${ENV_NODE_FILE}${RESET} восстановлен."
@@ -1328,26 +1434,72 @@ restore_backup() {
         
         if [ -f "$temp_restore_dir/$ENV_FILE" ]; then
             print_message "INFO" "Найден файл ${BOLD}${ENV_FILE}${RESET} (старый формат). Восстанавливаем..."
-            mkdir -p "$REMNALABS_ROOT_DIR"
             mv "$temp_restore_dir/$ENV_FILE" "$ENV_RESTORE_PATH" || {
                 print_message "ERROR" "Ошибка при восстановлении ${BOLD}${ENV_FILE}${RESET}."
                 [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+                read -rp "Нажмите Enter для возврата в меню..."
                 return 1
             }
             print_message "SUCCESS" "Файл ${BOLD}${ENV_FILE}${RESET} восстановлен."
         fi
     fi
     
+    # ШАГ 3: Удаляем оставшиеся тома БД (если есть)
+    print_message "INFO" "Проверка и удаление старых томов БД Remnawave..."
+    if docker volume ls -q | grep -q "remnawave-db-data"; then
+        if docker volume rm remnawave-db-data 2>/dev/null; then
+            print_message "SUCCESS" "Старый том БД remnawave-db-data удален."
+        else
+            print_message "WARN" "Не удалось удалить том remnawave-db-data (возможно, используется контейнером)."
+        fi
+    else
+        print_message "INFO" "Старых томов БД не найдено."
+    fi
+    
+    # ШАГ 4: Переходим в директорию
+    if ! cd "$REMNALABS_ROOT_DIR"; then
+        print_message "ERROR" "Не удалось перейти в восстановленную директорию ${BOLD}${REMNALABS_ROOT_DIR}${RESET}."
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
+    
+    # Проверяем наличие docker-compose.yml
+    if [[ ! -f "docker-compose.yml" ]]; then
+        print_message "ERROR" "Файл docker-compose.yml не найден в восстановленной директории."
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
+    
     echo ""
     
-    print_message "INFO" "Запуск контейнера с базой данных, ожидайте..."
+    # ШАГ 5: Поднимаем контейнер БД и восстанавливаем дамп
+    print_message "INFO" "Запуск контейнера с базой данных Remnawave..."
     docker compose rm -f remnawave-db > /dev/null 2>&1
-    docker compose up -d remnawave-db
+    
+    if ! docker compose up -d remnawave-db; then
+        print_message "ERROR" "Не удалось запустить контейнер БД Remnawave."
+        [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
     
     print_message "INFO" "Ожидание готовности базы данных..."
+    local wait_count=0
+    local max_wait=60  # Максимум 2 минуты ожидания
+    
     until [ "$(docker inspect --format='{{.State.Health.Status}}' remnawave-db)" == "healthy" ]; do
         sleep 2
         echo -n "."
+        wait_count=$((wait_count + 1))
+        if [ $wait_count -gt $max_wait ]; then
+            echo ""
+            print_message "ERROR" "Превышено время ожидания готовности БД Remnawave."
+            [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+            read -rp "Нажмите Enter для возврата в меню..."
+            return 1
+        fi
     done
     echo ""
     print_message "SUCCESS" "База данных готова."
@@ -1384,16 +1536,28 @@ restore_backup() {
     fi
     
     print_message "SUCCESS" "База данных успешно восстановлена."
+    
     echo ""
     
+    # Восстановление бота (если есть в архиве)
     restore_bot_backup "$temp_restore_dir"
     
     print_message "INFO" "Удаление временных файлов восстановления..."
     [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
+    
     echo ""
     
-    print_message "INFO" "Запуск всех контейнеров..."
-    docker compose up -d
+    # ШАГ 6: Запускаем все контейнеры
+    print_message "INFO" "Запуск всех контейнеров Remnawave..."
+    if ! docker compose up -d; then
+        print_message "ERROR" "Не удалось запустить все контейнеры Remnawave."
+        read -rp "Нажмите Enter для возврата в меню..."
+        return 1
+    fi
+    
+    # Небольшая пауза для стабилизации
+    sleep 3
+    
     echo ""
     
     print_message "SUCCESS" "Восстановление завершено. Все контейнеры запущены."
