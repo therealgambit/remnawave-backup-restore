@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.6"
+VERSION="2.0.7"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -412,10 +412,11 @@ restore_bot_backup() {
         
     # Удаляем старую директорию
     print_message "INFO" "Удаление старой директории..."
-    if ! rm -rf "$restore_path"; then
-        print_message "ERROR" "Не удалось удалить директорию ${BOLD}${restore_path}${RESET}."
-        return 1
-    fi
+    if [[ -d "$restore_path" ]]; then
+        if ! rm -rf "$restore_path"; then
+            print_message "ERROR" "Не удалось удалить директорию ${BOLD}${restore_path}${RESET}."
+            return 1
+        fi
         print_message "SUCCESS" "Старая директория удалена."
     else
         print_message "INFO" "Директория ${BOLD}${restore_path}${RESET} не существует. Это чистая установка."
