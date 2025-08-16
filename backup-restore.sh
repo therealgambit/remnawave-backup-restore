@@ -2124,7 +2124,7 @@ main_menu() {
         clear
         echo -e "${GREEN}${BOLD}REMNAWAVE BACKUP & RESTORE by distillium${RESET} "
         if [[ "$UPDATE_AVAILABLE" == true ]]; then
-            echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION} ${YELLOW}(доступно обновление)${RESET}"
+            echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION} ${RED}доступно обновление${RESET}"
         else
             echo -e "${BOLD}${LIGHT_GRAY}Версия: ${VERSION}${RESET}"
         fi
