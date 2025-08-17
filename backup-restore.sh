@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -127,74 +127,88 @@ configure_bot_backup() {
                 clear
                 echo -e "${GREEN}${BOLD}Настройка бэкапа Telegram бота${RESET}"
                 echo ""
-                
                 print_message "ACTION" "Выберите бота для бэкапа:"
                 echo " 1. Бот от Иисуса (remnawave-telegram-shop)"
                 echo " 2. Бот от Мачки (remnawave-tg-shop)"
                 echo ""
+                echo " 0. Назад"
+                echo ""
                 
                 local bot_choice
+                local selected_bot=""
+                
                 while true; do
                     read -rp " ${GREEN}[?]${RESET} Выберите бота: " bot_choice
                     case "$bot_choice" in
-                        1) 
-                            BOT_BACKUP_SELECTED="Бот от Иисуса"
+                        1)
+                            selected_bot="Бот от Иисуса"
+                            break
+                            ;;
+                        2)
+                            selected_bot="Бот от Мачки"
+                            break
+                            ;;
+                        0) 
+                            selected_bot=""
                             break 
                             ;;
-                        2) 
-                            BOT_BACKUP_SELECTED="Бот от Мачки"
-                            break 
-                            ;;
-                        *) 
-                            print_message "ERROR" "Неверный ввод." 
+                        *)
+                            print_message "ERROR" "Неверный ввод."
                             ;;
                     esac
                 done
+                
+                if [[ -z "$selected_bot" ]]; then
+                    continue
+                fi
+                
+                BOT_BACKUP_SELECTED="$selected_bot"
                 
                 echo ""
                 print_message "ACTION" "Выберите путь к директории бота:"
                 
                 if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
                     echo " 1. /opt/remnawave-telegram-shop"
-                    echo " 2. /root/remnawave-telegram-shop"  
+                    echo " 2. /root/remnawave-telegram-shop"
                     echo " 3. /opt/stacks/remnawave-telegram-shop"
-                else  # Бот от Мачки
+                else
                     echo " 1. /opt/remnawave-tg-shop"
-                    echo " 2. /root/remnawave-tg-shop"  
+                    echo " 2. /root/remnawave-tg-shop"
                     echo " 3. /opt/stacks/remnawave-tg-shop"
                 fi
-                echo ""
                 
+                echo ""
                 local path_choice
+                
                 while true; do
                     read -rp " ${GREEN}[?]${RESET} Выберите путь: " path_choice
                     case "$path_choice" in
-                        1) 
+                        1)
                             if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
                                 BOT_BACKUP_PATH="/opt/remnawave-telegram-shop"
                             else
                                 BOT_BACKUP_PATH="/opt/remnawave-tg-shop"
                             fi
-                            break 
+                            break
                             ;;
-                        2) 
+                        2)
                             if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
                                 BOT_BACKUP_PATH="/root/remnawave-telegram-shop"
                             else
                                 BOT_BACKUP_PATH="/root/remnawave-tg-shop"
                             fi
-                            break 
+                            break
                             ;;
-                        3) 
+                        3)
                             if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
                                 BOT_BACKUP_PATH="/opt/stacks/remnawave-telegram-shop"
                             else
                                 BOT_BACKUP_PATH="/opt/stacks/remnawave-tg-shop"
                             fi
-                            break 
+                            break
                             ;;
-                        *) 
-                            print_message "ERROR" "Неверный ввод." 
+                        *)
+                            print_message "ERROR" "Неверный ввод."
                             ;;
                     esac
                 done
@@ -202,24 +216,23 @@ configure_bot_backup() {
                 echo ""
                 read -rp " Введите имя пользователя PostgreSQL для бота (по умолчанию postgres): " bot_db_user
                 BOT_BACKUP_DB_USER="${bot_db_user:-postgres}"
-                
                 BOT_BACKUP_ENABLED="true"
                 save_config
-                
                 print_message "SUCCESS" "Бэкап бота успешно настроен и включен."
                 ;;
-                
             2)
                 BOT_BACKUP_ENABLED="false"
                 BOT_BACKUP_PATH=""
                 BOT_BACKUP_SELECTED=""
                 save_config
-                
                 print_message "SUCCESS" "Бэкап бота выключен."
                 ;;
-                
-            0) break ;;
-            *) print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." ;;
+            0) 
+                break 
+                ;;
+            *) 
+                print_message "ERROR" "Неверный ввод. Пожалуйста, выберите один из предложенных пунктов." 
+                ;;
         esac
         
         echo ""
