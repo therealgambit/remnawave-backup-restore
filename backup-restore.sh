@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2.0.1"
+VERSION="2.0.2"
 INSTALL_DIR="/opt/rw-backup-restore"
 BACKUP_DIR="$INSTALL_DIR/backup"
 CONFIG_FILE="$INSTALL_DIR/config.env"
@@ -166,7 +166,6 @@ configure_bot_backup() {
                 
                 echo ""
                 print_message "ACTION" "Выберите путь к директории бота:"
-                
                 if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
                     echo " 1. /opt/remnawave-telegram-shop"
                     echo " 2. /root/remnawave-telegram-shop"
@@ -176,40 +175,80 @@ configure_bot_backup() {
                     echo " 2. /root/remnawave-tg-shop"
                     echo " 3. /opt/stacks/remnawave-tg-shop"
                 fi
-                
+                echo " 4. Указать свой путь"
                 echo ""
+                echo " 0. Назад"
+                echo ""
+
                 local path_choice
-                
                 while true; do
                     read -rp " ${GREEN}[?]${RESET} Выберите путь: " path_choice
                     case "$path_choice" in
-                        1)
-                            if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
-                                BOT_BACKUP_PATH="/opt/remnawave-telegram-shop"
-                            else
-                                BOT_BACKUP_PATH="/opt/remnawave-tg-shop"
+                    1)
+                        if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
+                            BOT_BACKUP_PATH="/opt/remnawave-telegram-shop"
+                        else
+                            BOT_BACKUP_PATH="/opt/remnawave-tg-shop"
+                        fi
+                        break
+                        ;;
+                    2)
+                        if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
+                            BOT_BACKUP_PATH="/root/remnawave-telegram-shop"
+                        else
+                            BOT_BACKUP_PATH="/root/remnawave-tg-shop"
+                        fi
+                        break
+                        ;;
+                    3)
+                        if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
+                            BOT_BACKUP_PATH="/opt/stacks/remnawave-telegram-shop"
+                        else
+                            BOT_BACKUP_PATH="/opt/stacks/remnawave-tg-shop"
+                        fi
+                        break
+                        ;;
+                    4)
+                        echo ""
+                        print_message "INFO" "Введите полный путь к директории бота:"
+                        read -rp " Путь: " custom_bot_path
+        
+                        if [[ -z "$custom_bot_path" ]]; then
+                            print_message "ERROR" "Путь не может быть пустым."
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+        
+                        if [[ ! "$custom_bot_path" = /* ]]; then
+                            print_message "ERROR" "Путь должен быть абсолютным (начинаться с /)."
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+        
+                        custom_bot_path="${custom_bot_path%/}"
+        
+                        if [[ ! -d "$custom_bot_path" ]]; then
+                            print_message "WARN" "Директория ${BOLD}${custom_bot_path}${RESET} не существует."
+                            read -rp "$(echo -e "${GREEN}[?]${RESET} Продолжить с этим путем? ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: ")" confirm_custom_bot_path
+                            if [[ "$confirm_custom_bot_path" != "y" ]]; then
+                                echo ""
+                                read -rp "Нажмите Enter, чтобы продолжить..."
+                                continue
                             fi
-                            break
-                            ;;
-                        2)
-                            if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
-                                BOT_BACKUP_PATH="/root/remnawave-telegram-shop"
-                            else
-                                BOT_BACKUP_PATH="/root/remnawave-tg-shop"
-                            fi
-                            break
-                            ;;
-                        3)
-                            if [[ "$BOT_BACKUP_SELECTED" == "Бот от Иисуса" ]]; then
-                                BOT_BACKUP_PATH="/opt/stacks/remnawave-telegram-shop"
-                            else
-                                BOT_BACKUP_PATH="/opt/stacks/remnawave-tg-shop"
-                            fi
-                            break
-                            ;;
-                        *)
-                            print_message "ERROR" "Неверный ввод."
-                            ;;
+                        fi
+        
+                        BOT_BACKUP_PATH="$custom_bot_path"
+                        print_message "SUCCESS" "Установлен кастомный путь бота: ${BOLD}${BOT_BACKUP_PATH}${RESET}"
+                        break
+                        ;;
+                    0)
+                        continue 2
+                        ;;
+                    *)
+                        print_message "ERROR" "Неверный ввод."
+                        ;;
                     esac
                 done
                 
@@ -350,7 +389,6 @@ restore_bot_backup() {
     
     echo ""
     print_message "ACTION" "Выберите путь для восстановления бота:"
-    
     if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
         echo " 1. /opt/remnawave-telegram-shop"
         echo " 2. /root/remnawave-telegram-shop"
@@ -360,43 +398,74 @@ restore_bot_backup() {
         echo " 2. /root/remnawave-tg-shop"
         echo " 3. /opt/stacks/remnawave-tg-shop"
     fi
+    echo " 4. Указать свой путь"
     echo ""
-    
+    echo " 0. Назад"
+    echo ""
+
     local restore_path
     local path_choice
     while true; do
         read -rp " ${GREEN}[?]${RESET} Выберите путь: " path_choice
         case "$path_choice" in
-            1) 
-                if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
-                    restore_path="/opt/remnawave-telegram-shop"
-                else
-                    restore_path="/opt/remnawave-tg-shop"
-                fi
-                break 
-                ;;
-            2) 
-                if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
-                    restore_path="/root/remnawave-telegram-shop"
-                else
-                    restore_path="/root/remnawave-tg-shop"
-                fi
-                break 
-                ;;
-            3) 
-                if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
-                    restore_path="/opt/stacks/remnawave-telegram-shop"
-                else
-                    restore_path="/opt/stacks/remnawave-tg-shop"
-                fi
-                break 
-                ;;
-            *) 
-                print_message "ERROR" "Неверный ввод." 
-                ;;
+        1)
+            if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
+                restore_path="/opt/remnawave-telegram-shop"
+            else
+                restore_path="/opt/remnawave-tg-shop"
+            fi
+            break
+            ;;
+        2)
+            if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
+                restore_path="/root/remnawave-telegram-shop"
+            else
+                restore_path="/root/remnawave-tg-shop"
+            fi
+            break
+            ;;
+        3)
+            if [[ "$selected_bot_name" == "Бот от Иисуса" ]]; then
+                restore_path="/opt/stacks/remnawave-telegram-shop"
+            else
+                restore_path="/opt/stacks/remnawave-tg-shop"
+            fi
+            break
+            ;;
+        4)
+            echo ""
+            print_message "INFO" "Введите полный путь для восстановления бота:"
+            read -rp " Путь: " custom_restore_path
+        
+            if [[ -z "$custom_restore_path" ]]; then
+                print_message "ERROR" "Путь не может быть пустым."
+                echo ""
+                read -rp "Нажмите Enter, чтобы продолжить..."
+                continue
+            fi
+        
+            if [[ ! "$custom_restore_path" = /* ]]; then
+                print_message "ERROR" "Путь должен быть абсолютным (начинаться с /)."
+                echo ""
+                read -rp "Нажмите Enter, чтобы продолжить..."
+                continue
+            fi
+        
+            custom_restore_path="${custom_restore_path%/}"
+            restore_path="$custom_restore_path"
+            print_message "SUCCESS" "Установлен кастомный путь для восстановления: ${BOLD}${restore_path}${RESET}"
+            break
+            ;;
+        0)
+            print_message "INFO" "Восстановление бота отменено."
+            return 0
+            ;;
+        *)
+            print_message "ERROR" "Неверный ввод."
+            ;;
         esac
     done
-    
+
     local bot_params=$(get_bot_params "$selected_bot_name")
     IFS='|' read -r BOT_CONTAINER_NAME BOT_VOLUME_NAME BOT_DIR_NAME BOT_SERVICE_NAME <<< "$bot_params"
     
@@ -579,7 +648,6 @@ EOF
 }
 
 load_or_create_config() {
-
     if [[ -f "$CONFIG_FILE" ]]; then
         print_message "INFO" "Загрузка конфигурации..."
         source "$CONFIG_FILE"
@@ -618,24 +686,61 @@ load_or_create_config() {
         
         if [[ -z "$REMNALABS_ROOT_DIR" ]]; then
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "    1. /opt/remnawave"
-            echo "    2. /root/remnawave"
-            echo "    3. /opt/stacks/remnawave"
+            echo " 1. /opt/remnawave"
+            echo " 2. /root/remnawave"
+            echo " 3. /opt/stacks/remnawave"
+            echo " 4. Указать свой путь"
             echo ""
+
             local remnawave_path_choice
             while true; do
-                read -rp "    ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
+                read -rp " ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
                 case "$remnawave_path_choice" in
-                    1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
-                    2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
-                    *) print_message "ERROR" "Неверный ввод." ;;
+                1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                4) 
+                    echo ""
+                    print_message "INFO" "Введите полный путь к директории панели Remnawave:"
+                    read -rp " Путь: " custom_remnawave_path
+    
+                    if [[ -z "$custom_remnawave_path" ]]; then
+                        print_message "ERROR" "Путь не может быть пустым."
+                        echo ""
+                        read -rp "Нажмите Enter, чтобы продолжить..."
+                        continue
+                    fi
+    
+                    if [[ ! "$custom_remnawave_path" = /* ]]; then
+                        print_message "ERROR" "Путь должен быть абсолютным (начинаться с /)."
+                        echo ""
+                        read -rp "Нажмите Enter, чтобы продолжить..."
+                        continue
+                    fi
+    
+                    custom_remnawave_path="${custom_remnawave_path%/}"
+    
+                    if [[ ! -d "$custom_remnawave_path" ]]; then
+                        print_message "WARN" "Директория ${BOLD}${custom_remnawave_path}${RESET} не существует."
+                        read -rp "$(echo -e "${GREEN}[?]${RESET} Продолжить с этим путем? ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: ")" confirm_custom_path
+                        if [[ "$confirm_custom_path" != "y" ]]; then
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+                    fi
+    
+                    REMNALABS_ROOT_DIR="$custom_remnawave_path"
+                    print_message "SUCCESS" "Установлен кастомный путь: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
+                    break 
+                    ;;
+                *) print_message "ERROR" "Неверный ввод." ;;
                 esac
             done
+
             config_updated=true
             echo ""
         fi
-
 
         if [[ "$UPLOAD_METHOD" == "google_drive" ]]; then
             if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
@@ -740,18 +845,55 @@ load_or_create_config() {
             echo ""
 
             print_message "ACTION" "Где установлена/устанавливается ваша панель Remnawave?"
-            echo "    1. /opt/remnawave"
-            echo "    2. /root/remnawave"
-            echo "    3. /opt/stacks/remnawave"
+            echo " 1. /opt/remnawave"
+            echo " 2. /root/remnawave"
+            echo " 3. /opt/stacks/remnawave"
+            echo " 4. Указать свой путь"
             echo ""
+
             local remnawave_path_choice
             while true; do
-                read -rp "    ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
+                read -rp " ${GREEN}[?]${RESET} Выберите вариант: " remnawave_path_choice
                 case "$remnawave_path_choice" in
-                    1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
-                    2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
-                    *) print_message "ERROR" "Неверный ввод." ;;
+                1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                4) 
+                    echo ""
+                    print_message "INFO" "Введите полный путь к директории панели Remnawave:"
+                    read -rp " Путь: " custom_remnawave_path
+    
+                    if [[ -z "$custom_remnawave_path" ]]; then
+                        print_message "ERROR" "Путь не может быть пустым."
+                        echo ""
+                        read -rp "Нажмите Enter, чтобы продолжить..."
+                        continue
+                    fi
+    
+                    if [[ ! "$custom_remnawave_path" = /* ]]; then
+                        print_message "ERROR" "Путь должен быть абсолютным (начинаться с /)."
+                        echo ""
+                        read -rp "Нажмите Enter, чтобы продолжить..."
+                        continue
+                    fi
+    
+                    custom_remnawave_path="${custom_remnawave_path%/}"
+    
+                    if [[ ! -d "$custom_remnawave_path" ]]; then
+                        print_message "WARN" "Директория ${BOLD}${custom_remnawave_path}${RESET} не существует."
+                        read -rp "$(echo -e "${GREEN}[?]${RESET} Продолжить с этим путем? ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: ")" confirm_custom_path
+                        if [[ "$confirm_custom_path" != "y" ]]; then
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+                    fi
+    
+                    REMNALABS_ROOT_DIR="$custom_remnawave_path"
+                    print_message "SUCCESS" "Установлен кастомный путь: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
+                    break 
+                    ;;
+                *) print_message "ERROR" "Неверный ввод." ;;
                 esac
             done
             echo ""
@@ -1893,7 +2035,7 @@ configure_settings() {
                             ;;
                         2)
                             print_message "INFO" "Введите Chat ID (для отправки в группу) или свой Telegram ID (для прямой отправки в бота)"
-            echo -e "       Chat ID/Telegram ID можно узнать у этого бота ${CYAN}@username_to_id_bot${RESET}"
+                            echo -e "       Chat ID/Telegram ID можно узнать у этого бота ${CYAN}@username_to_id_bot${RESET}"
                             read -rp "   Введите новый ID: " NEW_CHAT_ID
                             CHAT_ID="$NEW_CHAT_ID"
                             save_config
@@ -1901,7 +2043,7 @@ configure_settings() {
                             ;;
                         3)
                             print_message "INFO" "Опционально: для отправки в определенный топик группы, введите ID топика (Message Thread ID)"
-            echo -e "       Оставьте пустым для общего потока или отправки напрямую в бота"
+                            echo -e "       Оставьте пустым для общего потока или отправки напрямую в бота"
                             read -rp "   Введите Message Thread ID: " NEW_TG_MESSAGE_THREAD_ID
                             TG_MESSAGE_THREAD_ID="$NEW_TG_MESSAGE_THREAD_ID"
                             save_config
@@ -2024,18 +2166,60 @@ configure_settings() {
                 print_message "INFO" "Текущий путь Remnawave: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
                 echo ""
                 print_message "ACTION" "Выберите новый путь для панели Remnawave:"
-                echo "   1. /opt/remnawave"
-                echo "   2. /root/remnawave"
-                echo "   3. /opt/stacks/remnawave"
+                echo " 1. /opt/remnawave"
+                echo " 2. /root/remnawave"
+                echo " 3. /opt/stacks/remnawave"
+                echo " 4. Указать свой путь"
                 echo ""
+                echo " 0. Назад"
+                echo ""
+
                 local new_remnawave_path_choice
                 while true; do
-                    read -rp "   ${GREEN}[?]${RESET} Выберите вариант: " new_remnawave_path_choice
+                    read -rp " ${GREEN}[?]${RESET} Выберите вариант: " new_remnawave_path_choice
                     case "$new_remnawave_path_choice" in
-                        1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
-                        2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
-                        3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
-                        *) print_message "ERROR" "Неверный ввод." ;;
+                    1) REMNALABS_ROOT_DIR="/opt/remnawave"; break ;;
+                    2) REMNALABS_ROOT_DIR="/root/remnawave"; break ;;
+                    3) REMNALABS_ROOT_DIR="/opt/stacks/remnawave"; break ;;
+                    4) 
+                        echo ""
+                        print_message "INFO" "Введите полный путь к директории панели Remnawave:"
+                        read -rp " Путь: " new_custom_remnawave_path
+        
+                        if [[ -z "$new_custom_remnawave_path" ]]; then
+                            print_message "ERROR" "Путь не может быть пустым."
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+        
+                        if [[ ! "$new_custom_remnawave_path" = /* ]]; then
+                            print_message "ERROR" "Путь должен быть абсолютным (начинаться с /)."
+                            echo ""
+                            read -rp "Нажмите Enter, чтобы продолжить..."
+                            continue
+                        fi
+        
+                        new_custom_remnawave_path="${new_custom_remnawave_path%/}"
+        
+                        if [[ ! -d "$new_custom_remnawave_path" ]]; then
+                            print_message "WARN" "Директория ${BOLD}${new_custom_remnawave_path}${RESET} не существует."
+                            read -rp "$(echo -e "${GREEN}[?]${RESET} Продолжить с этим путем? ${GREEN}${BOLD}Y${RESET}/${RED}${BOLD}N${RESET}: ")" confirm_new_custom_path
+                            if [[ "$confirm_new_custom_path" != "y" ]]; then
+                                echo ""
+                                read -rp "Нажмите Enter, чтобы продолжить..."
+                                continue
+                            fi
+                        fi
+        
+                        REMNALABS_ROOT_DIR="$new_custom_remnawave_path"
+                        print_message "SUCCESS" "Установлен новый кастомный путь: ${BOLD}${REMNALABS_ROOT_DIR}${RESET}"
+                        break 
+                        ;;
+                    0) 
+                        return
+                        ;;
+                    *) print_message "ERROR" "Неверный ввод." ;;
                     esac
                 done
                 save_config
