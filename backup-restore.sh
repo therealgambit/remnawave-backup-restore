@@ -513,17 +513,18 @@ restore_bot_backup() {
         mkdir -p "$temp_extract_dir"
         
         if tar -xzf "$BOT_DIR_ARCHIVE" -C "$temp_extract_dir"; then
-            local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "$BOT_DIR_NAME" | head -n 1)
+            local extracted_dir=$(find "$temp_extract_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
                 if cp -rf "$extracted_dir"/. "$restore_path/" 2>/dev/null; then
-                    print_message "SUCCESS" "Файлы директории бота восстановлены."
+                    print_message "SUCCESS" "Файлы директории бота восстановлены (папка: $(basename "$extracted_dir"))."
                 else
                     print_message "ERROR" "Ошибка при копировании файлов бота."
                     rm -rf "$temp_extract_dir"
                     return 1
                 fi
             else
-                print_message "ERROR" "Не найдена папка $BOT_DIR_NAME в архиве."
+                print_message "ERROR" "Не удалось найти директорию с файлами бота в архиве."
                 rm -rf "$temp_extract_dir"
                 return 1
             fi
@@ -1532,11 +1533,11 @@ restore_backup() {
         if tar -xzf "$REMNAWAVE_DIR_ARCHIVE" -C "$temp_extract_dir"; then
             print_message "SUCCESS" "Архив директории успешно распакован."
             
-            local extracted_dir=$(find "$temp_extract_dir" -maxdepth 1 -type d -name "remnawave" | head -n 1)
-            
+            local extracted_dir=$(find "$temp_extract_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
             if [[ -n "$extracted_dir" && -d "$extracted_dir" ]]; then
-                print_message "INFO" "Копирование файлов из архива в директорию Remnawave..."
-                
+                print_message "INFO" "Копирование файлов из архива в директорию Remnawave (папка в архиве: $(basename "$extracted_dir"))..."
+
                 if cp -rf "$extracted_dir"/. "$REMNALABS_ROOT_DIR/" 2>/dev/null; then
                     print_message "SUCCESS" "Файлы директории Remnawave успешно восстановлены."
                 else
@@ -1547,7 +1548,7 @@ restore_backup() {
                     return 1
                 fi
             else
-                print_message "ERROR" "Не удалось найти папку remnawave в архиве."
+                print_message "ERROR" "Не удалось найти директорию с файлами Remnawave в архиве."
                 rm -rf "$temp_extract_dir"
                 [[ -n "$temp_restore_dir" && -d "$temp_restore_dir" ]] && rm -rf "$temp_restore_dir"
                 read -rp "Нажмите Enter для возврата в меню..."
